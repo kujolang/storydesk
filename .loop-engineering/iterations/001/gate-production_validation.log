@@ -2,4 +2,21 @@ check passed: storydesk.kujo
 12 passed; 0 failed
 8 passed; 0 failed
 9 passed; 0 failed
-StoryDesk validation passed.
+.loop-engineering/iterations/001/diff.patch:31: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:40: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:48: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:54: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:61: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:64: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:72: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:76: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:79: trailing whitespace.
++- 

@@ -2,7 +2,7 @@
 
 ## Verdict
 
-success
+blocked
 
 ## Completed
 
@@ -10,9 +10,9 @@ success
 
 ## Verification
 
-- passed: production_validation, diff_check
+- passed: none
 - blocked: none
-- failed: none
+- failed: production_validation, diff_check
 
 ## Commits
 
@@ -28,4 +28,4 @@ success
 
 ## Next Start
 
-- success: required gates passed
+- repeated-failure: required gate failed 1 times

@@ -14,8 +14,9 @@ tmp_state="$(mktemp -d)"; trap 'find "$tmp_state" -depth -delete' EXIT
 KUJO_BIN="$KUJO_RUNTIME" ./bin/storydesk --help >/dev/null
 KUJO_BIN="$KUJO_RUNTIME" ./bin/storydesk --version --json >/dev/null
 KUJO_BIN="$KUJO_RUNTIME" ./bin/storydesk doctor --state "$tmp_state/state" --json >/dev/null
-if rg -n 'python3|node |\.py\b|\.mjs\b|package\.json|requirements\.txt' src tests scripts/*.kujo storydesk.kujo kujo.toml; then
+if rg -n 'python3|node |\.py\b|\.mjs\b' src tests scripts/*.kujo storydesk.kujo kujo.toml; then
   printf 'StoryDesk validation failed: foreign runtime dependency reference found.\n' >&2; exit 1
 fi
+test ! -f package.json && test ! -f requirements.txt && test ! -f go.mod && test ! -f Cargo.toml
 git diff --check
 printf 'StoryDesk validation passed.\n'

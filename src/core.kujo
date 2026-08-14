@@ -70,7 +70,7 @@ func create_record(command, parsed, config, p) {
     if !valid_timestamp(timestamp) { return {"ok": false, "code": "invalid_timestamp", "error": "timestamp must be RFC 3339 UTC"} }
     artifact := artifact_metadata(flag(parsed, "path", "")); if !artifact["ok"] { return artifact }
     domain_error := validate_command(command, payload, artifact["value"])
-    if domain_error != "" { return {"ok": false, "code": "domain_validation", "error": domain_error} }
+    if domain_error != "" { code := "domain_validation"; if starts_with(domain_error, "unsupported:") { code = "unsupported" }; return {"ok": false, "code": code, "error": domain_error} }
     prefix := id_prefix(command); id := flag(parsed, "id", "")
     if id == "" { id = prefix + "-" + substring(sha256(p["slug"] + "\n" + command + "\n" + actor + "\n" + timestamp + "\n" + canonical_json(payload)), 0, 20) }
     if !safe_id(id) || !starts_with(id, prefix + "-") { return {"ok": false, "code": "unsafe_id", "error": "id must use prefix " + prefix + "- and contain only lowercase letters, digits, and hyphens"} }
@@ -88,6 +88,12 @@ func validate_record(record, p) {
     if record["schema_version"] != "1.0.0" || record["contract_version"] != p["contract_version"] { return {"ok": false, "code": "incompatible_record", "error": "record contract is incompatible"} }
     if !safe_id(record["id"]) || !valid_timestamp(record["created_at"]) { return {"ok": false, "code": "invalid_record", "error": "record id or timestamp is invalid"} }
     if type(record["payload"]) != "dict" || type(record["provenance"]) != "array" { return {"ok": false, "code": "invalid_record", "error": "payload/provenance shape is invalid"} }
+    artifact := get(record, "artifact", null)
+    if type(artifact) == "dict" {
+        path := get(artifact, "path", "")
+        if path == "" || !path_is_file(path) || path_is_symlink(path) { return {"ok": false, "code": "artifact_missing", "error": "bound artifact is missing or unsafe"} }
+        if sha256_file(path) != get(artifact, "sha256", "") { return {"ok": false, "code": "checksum_drift", "error": "bound artifact checksum drift detected"} }
+    }
     error := validate_command(record["command"], record["payload"], get(record, "artifact", null))
     if error != "" { return {"ok": false, "code": "domain_validation", "error": error} }
     return {"ok": true}
@@ -118,17 +124,25 @@ export func dispatch(command, parsed) {
         if state_error == "" && len(listing["warnings"]) > 0 { code = "corrupt_state"; error = "one or more records are unreadable" }
         return {"ok": healthy, "code": code, "error": error, "value": {"healthy": healthy, "tool": p["slug"], "version": p["version"], "minimum_kujo": "1.0.1", "state": state, "record_count": len(listing["records"]), "corrupt_records": listing["warnings"], "limits": {"input_bytes": 1048576, "record_bytes": 1048576, "artifact_bytes": 67108864, "list_records": 1000}, "limitations": p["limitations"]}}
     }
-    if command == "show" {
+    if has(p["show_commands"], command) {
         id := flag(parsed, "id", ""); if id == "" { return {"ok": false, "code": "id_required", "error": "show requires --id"} }
         return load_record(state, id)
     }
-    if command == "idea list" || command == "review-queue" || command == "history" {
+    if has(p["list_commands"], command) {
         limit_result := bounded_int(setting(parsed, config, "limit", 100), 100, 1, 1000); if !limit_result["ok"] { return limit_result }
-        kind := flag(parsed, "type", ""); if command == "idea list" { kind = "idea" }
+        kind := flag(parsed, "type", get(p["list_kinds"], command, ""))
         listing := list_records(state, kind, flag(parsed, "after", ""), limit_result["value"])
         return {"ok": true, "value": listing}
     }
-    if command == "validate" {
+    if has(p["diff_commands"], command) {
+        left_id := flag(parsed, "id", ""); right_id := flag(parsed, "other-id", "")
+        if left_id == "" || right_id == "" { return {"ok": false, "code": "ids_required", "error": "comparison requires --id and --other-id"} }
+        left := load_record(state, left_id); if !left["ok"] { return left }
+        right := load_record(state, right_id); if !right["ok"] { return right }
+        left_artifact := get(left["value"], "artifact", {}); right_artifact := get(right["value"], "artifact", {})
+        return {"ok": true, "value": {"left_id": left_id, "right_id": right_id, "records_equal": canonical_json(left["value"]["payload"]) == canonical_json(right["value"]["payload"]), "left_record_sha256": left["checksum"], "right_record_sha256": right["checksum"], "left_artifact_sha256": get(left_artifact, "sha256", null), "right_artifact_sha256": get(right_artifact, "sha256", null), "artifact_equal": get(left_artifact, "sha256", null) == get(right_artifact, "sha256", null)}}
+    }
+    if has(p["validate_commands"], command) {
         id := flag(parsed, "id", "")
         if id != "" { loaded := load_record(state, id); if !loaded["ok"] { return loaded }; checked := validate_record(loaded["value"], p); if !checked["ok"] { return checked }; return {"ok": true, "value": {"valid": true, "id": id, "checksum": loaded["checksum"]}} }
         listing := list_records(state, "", "", 1000); mut invalid := []
@@ -138,7 +152,7 @@ export func dispatch(command, parsed) {
         if !valid { code = "validation_failed"; error = "one or more records failed validation" }
         return {"ok": valid, "code": code, "error": error, "value": {"valid": valid, "checked": len(listing["records"]), "invalid": invalid, "storage_warnings": listing["warnings"], "truncated": listing["truncated"]}}
     }
-    if command == "export" {
+    if has(p["export_commands"], command) {
         limit_result := bounded_int(setting(parsed, config, "limit", 1000), 1000, 1, 1000); if !limit_result["ok"] { return limit_result }
         listing := list_records(state, flag(parsed, "type", ""), flag(parsed, "after", ""), limit_result["value"])
         return export_result({"schema_version": "1.0.0", "tool": p["slug"], "records": listing["records"], "warnings": listing["warnings"], "truncated": listing["truncated"]}, parsed, p)
@@ -156,7 +170,7 @@ export func main(argv) {
     if !has(p["commands"], command) { eprint(p["name"] + ": unknown command: " + command); return 2 }
     parsed := parse_args(command_tokens(argv, command), ["json", "dry-run", "force"])
     if len(parsed["errors"]) > 0 { eprint(p["name"] + ": " + parsed["errors"][0]); return 2 }
-    allowed := ["state", "config", "input", "id", "actor", "timestamp", "path", "type", "after", "limit", "output", "json", "dry-run", "force"]
+    allowed := ["state", "config", "input", "id", "other-id", "actor", "timestamp", "path", "type", "after", "limit", "output", "json", "dry-run", "force"]
     for name in keys(parsed["flags"]) { if !has(allowed, name) { eprint(p["name"] + ": unknown flag --" + name); return 2 } }
     if len(parsed["positionals"]) > 0 { eprint(p["name"] + ": unexpected positional argument: " + parsed["positionals"][0]); return 2 }
     result := dispatch(command, parsed)

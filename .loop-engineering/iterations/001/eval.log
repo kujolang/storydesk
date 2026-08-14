@@ -5,9 +5,78 @@ check passed: storydesk.kujo
 12 passed; 0 failed
 8 passed; 0 failed
 9 passed; 0 failed
-StoryDesk validation passed.
-gate production_validation: pass
+.loop-engineering/iterations/001/diff.patch:31: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:40: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:48: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:54: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:61: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:64: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:72: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:76: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:79: trailing whitespace.
++- 
 
 ## gate: diff_check
 $ git diff --check
-gate diff_check: pass
+.loop-engineering/iterations/001/diff.patch:31: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:40: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:48: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:54: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:61: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:64: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:72: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:76: trailing whitespace.
++- 
+.loop-engineering/iterations/001/diff.patch:79: trailing whitespace.
++- 
+.loop-engineering/iterations/001/eval.log:9: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/eval.log:11: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/eval.log:13: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/eval.log:15: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/eval.log:17: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/eval.log:19: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/eval.log:21: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/eval.log:23: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/eval.log:25: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/gate-production_validation.log:6: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/gate-production_validation.log:8: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/gate-production_validation.log:10: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/gate-production_validation.log:12: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/gate-production_validation.log:14: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/gate-production_validation.log:16: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/gate-production_validation.log:18: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/gate-production_validation.log:20: trailing whitespace.
+++- 
+.loop-engineering/iterations/001/gate-production_validation.log:22: trailing whitespace.
+++- 
