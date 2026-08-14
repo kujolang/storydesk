@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Enforced timestamp/date ranges and valid state transitions alongside stronger state compatibility, managed-directory safety, pagination, actor, and immutable-record validation.
 - Refactored the runtime into focused Kujo modules under `src/`.
 - Added command-specific editorial validation, JSON configuration, bounded pagination, atomic export, structured error codes, and detailed doctor/validate reports.
 - Hardened storage with per-record write locks, secret-field rejection, traversal and symlink protection, resource ceilings, and append-only audit events.

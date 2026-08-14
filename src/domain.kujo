@@ -1,4 +1,4 @@
-from src.common import get, has
+from src.common import get, has, valid_timestamp
 
 export func record_type(command) {
     if command == "idea add" { return "idea" }
@@ -25,6 +25,7 @@ func require_text(payload, key) {
     if len(value) > 16384 { return "field exceeds 16 KiB: " + key }
     return ""
 }
+func valid_date(value){return type(value)=="string"&&regex_match(value,"^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$")}
 
 export func validate_command(command, payload, artifact) {
     if command == "idea add" { return require_text(payload, "title") }
@@ -40,13 +41,14 @@ export func validate_command(command, payload, artifact) {
     if command == "assign" {
         error := require_text(payload, "brief_id"); if error != "" { return error }
         error = require_text(payload, "role"); if error != "" { return error }
-        return require_text(payload, "due_at")
+        error = require_text(payload, "due_at"); if error != "" { return error }; if !valid_timestamp(payload["due_at"]) { return "due_at must be RFC 3339 UTC" }; return ""
     }
     if command == "claim" { return require_text(payload, "assignment_id") }
     if command == "status" {
         for key in ["record_id", "from_status", "to_status"] { error := require_text(payload, key); if error != "" { return error } }
         allowed := ["idea", "triaged", "planned", "researching", "evidence_ready", "outlined", "drafting", "technical_review", "editorial_review", "ready_for_review", "approved", "scheduled", "published", "measuring", "learned", "archived", "blocked", "rejected", "refresh_needed"]
-        if !has(allowed, payload["to_status"]) { return "invalid to_status" }
+        if !has(allowed, payload["from_status"]) || !has(allowed, payload["to_status"]) { return "invalid status transition endpoint" }
+        if payload["from_status"]==payload["to_status"] { return "status transition must change status" }
     }
     if command == "block" {
         for key in ["record_id", "reason", "evidence"] { error := require_text(payload, key); if error != "" { return error } }
@@ -54,10 +56,10 @@ export func validate_command(command, payload, artifact) {
     if command == "handoff" {
         for key in ["record_id", "from_actor", "to_actor", "next_action"] { error := require_text(payload, key); if error != "" { return error } }
     }
-    if command == "packet daily" { return require_text(payload, "date") }
+    if command == "packet daily" { error:=require_text(payload, "date");if error!=""{return error};if !valid_date(payload["date"]){return "date must be YYYY-MM-DD"};return "" }
     if command == "packet range" {
         error := require_text(payload, "start_date"); if error != "" { return error }
-        return require_text(payload, "end_date")
+        error = require_text(payload, "end_date"); if error != "" { return error }; if !valid_date(payload["start_date"])||!valid_date(payload["end_date"]){return "packet dates must be YYYY-MM-DD"};if payload["start_date"]>payload["end_date"]{return "packet date range is reversed"};return ""
     }
     return ""
 }

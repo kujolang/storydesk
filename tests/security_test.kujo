@@ -7,9 +7,9 @@ func opts(values) { return parse_args(values, ["json", "dry-run", "force"]) }
 
 root := "/tmp/storydesk-security-" + uuid_v4()
 check(!dispatch("init", opts(["--state", root + "/../escape"]))["ok"], "state traversal rejected")
-secret := root + "-secret.json"; write_file(secret, "{\"schema_version\":\"1.0.0\",\"title\":\"safe title\",\"api_key\":\"must-not-store\"}", true)
+secret := root + "-secret.json"; write_file(secret, "{\"schema_version\":\"1.0.0\",\"title\":\"safe title\",\"provider_api_key\":\"must-not-store\"}", true)
 check(!dispatch("idea add", opts(["--state", root, "--input", secret, "--actor", "editor"]))["ok"], "secret-shaped fields rejected")
-check(!dispatch("idea add", opts(["--state", root, "--input", "fixtures/core.json", "--actor", "editor", "--timestamp", "not-a-time"]))["ok"], "invalid timestamp rejected")
+check(!dispatch("idea add", opts(["--state", root, "--input", "fixtures/core.json", "--actor", "editor", "--timestamp", "2026-13-40T25:61:61Z"]))["ok"], "invalid timestamp range rejected")
 check(!dispatch("show", opts(["--state", root, "--id", "../escape"]))["ok"], "record traversal rejected")
 oversized := root + "-oversized.json"; write_file(oversized, "{" + repeat(" ", 1048576) + "}", true)
 check(!dispatch("idea add", opts(["--state", root, "--input", oversized, "--actor", "editor"]))["ok"], "oversized input rejected")
@@ -26,5 +26,7 @@ if created["ok"] {
     if result.exitcode == 0 { check(!dispatch("show", opts(["--state", root, "--id", "idea-link"]))["ok"], "record symlink rejected") }
 }
 delete_file(secret); delete_file(oversized)
+foreign_state := root + "-foreign"; check(dispatch("init", opts(["--state", foreign_state]))["ok"], "foreign state baseline"); write_file(foreign_state + "/metadata.json", "{\"schema_version\":\"1.0.0\",\"tool\":\"other-tool\",\"contract_version\":\"1.0.0\"}", true); check(!dispatch("init", opts(["--state", foreign_state]))["ok"], "incompatible state rejected")
+symlink_state := root + "-symlink"; outside_state := root + "-outside"; create_dir(symlink_state); create_dir(outside_state); linked := spawn_process(["ln", "-s", outside_state, symlink_state + "/records"], {"timeout_ms": 5000, "max_output_bytes": 4096}); if linked.exitcode == 0 { check(!dispatch("init", opts(["--state", symlink_state]))["ok"], "managed directory symlink rejected") }
 print(to_string(passed) + " passed; " + to_string(failed) + " failed")
 if failed > 0 { exit(1) }
