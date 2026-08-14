@@ -2,7 +2,8 @@ export func profile() {
     return {
         "slug": "storydesk",
         "name": "StoryDesk",
-        "version": "0.1.0",
+        "version": "0.2.0",
+        "record_versions": ["0.1.0", "0.2.0"],
         "contract_version": "1.0.0",
         "default_state": ".storydesk",
         "description": "Editorial control desk for portable ideas, campaigns, commissions, assignments, dependencies, packets, handoffs, and review queues.",

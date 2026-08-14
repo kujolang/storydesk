@@ -16,7 +16,7 @@ success
 
 ## Commits
 
-- Loop engineering: Harden StoryDesk into a production-ready, universally useful Kujo-native editorial control desk without weakening its authority boundaries.
+- Loop engineering: Clean up, verify, and prepare StoryDesk for the v0.2.0 release without weakening its authority boundaries.
 
 ## Remaining
 
