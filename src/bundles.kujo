@@ -1,0 +1,43 @@
+from src.common import get, canonical_json, parse_object
+
+func read_key(path, label) {
+    if !path_is_file(path) || path_is_symlink(path) { return {"ok": false, "code": "unsafe_key", "error": label + " must be a regular non-symlink file"} }
+    if file_size(path) > 1048576 { return {"ok": false, "code": "key_too_large", "error": label + " exceeds 1 MiB"} }
+    return {"ok": true, "value": read_file(path)}
+}
+
+export func sign_export_bundle(bundle, private_path, public_path, signed_at) {
+    private_key := read_key(private_path, "private signing key"); if !private_key["ok"] { return private_key }
+    public_key := read_key(public_path, "public signing key"); if !public_key["ok"] { return public_key }
+    payload := canonical_json(bundle); key_id := substring(sha256(public_key["value"]), 0, 32); mut signature := null
+    try { signature = rsa_sign(payload, private_key["value"]) } except error { signature = null }
+    if type(signature) != "string" { return {"ok": false, "code": "signing_failed", "error": "RSA signing failed"} }
+    mut verified := false
+    try { verified = rsa_verify(payload, signature, public_key["value"]) } except error { verified = false }
+    if !verified { return {"ok": false, "code": "signing_failed", "error": "generated signature did not verify with the supplied public key"} }
+    signed := bundle
+    signed["integrity"] := {"schema_version": "1.0.0", "algorithm": "RSA-SHA256", "key_id": key_id, "signed_at": signed_at, "payload_sha256": sha256(payload), "signature": signature}
+    return {"ok": true, "value": signed}
+}
+
+export func verify_export_bundle(path, public_path, require_signature) {
+    if !path_is_file(path) || path_is_symlink(path) { return {"ok": false, "code": "input_not_found", "error": "export bundle must be a regular non-symlink file"} }
+    if file_size(path) > 67108864 { return {"ok": false, "code": "input_too_large", "error": "export bundle exceeds 64 MiB"} }
+    parsed := parse_object(read_file(path), "export bundle"); if !parsed["ok"] { return parsed }; envelope_value := parsed["value"]
+    bundle := envelope_value
+    if has_key(envelope_value, "ok") == 1 && type(get(envelope_value, "data", null)) == "dict" { bundle = envelope_value["data"] }
+    integrity := get(bundle, "integrity", null)
+    if type(integrity) != "dict" {
+        if require_signature { return {"ok": false, "code": "signature_required", "error": "export bundle is unsigned"} }
+        return {"ok": true, "value": {"valid": true, "signature": "absent", "records": len(get(bundle, "records", []))}}
+    }
+    if public_path == "" { return {"ok": false, "code": "public_key_required", "error": "signed export verification requires --public-key"} }
+    public_key := read_key(public_path, "public signing key"); if !public_key["ok"] { return public_key }
+    unsigned := {}; for key in keys(bundle) { if key != "integrity" { unsigned[key] := bundle[key] } }
+    payload := canonical_json(unsigned); key_id := substring(sha256(public_key["value"]), 0, 32)
+    if get(integrity, "schema_version", "") != "1.0.0" || get(integrity, "algorithm", "") != "RSA-SHA256" || get(integrity, "key_id", "") != key_id || get(integrity, "payload_sha256", "") != sha256(payload) { return {"ok": false, "code": "signature_invalid", "error": "export signature metadata does not bind the supplied bundle and key"} }
+    mut verified := false
+    try { verified = rsa_verify(payload, get(integrity, "signature", ""), public_key["value"]) } except error { verified = false }
+    if !verified { return {"ok": false, "code": "signature_invalid", "error": "export signature verification failed"} }
+    return {"ok": true, "value": {"valid": true, "signature": "verified", "key_id": key_id, "payload_sha256": sha256(payload), "records": len(get(bundle, "records", []))}}
+}

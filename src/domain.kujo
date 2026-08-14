@@ -1,4 +1,5 @@
-from src.common import get, has, valid_timestamp
+from src.common import get, valid_timestamp
+from src.policy import validate_transition
 
 export func record_type(command) {
     if command == "idea add" { return "idea" }
@@ -27,7 +28,7 @@ func require_text(payload, key) {
 }
 func valid_date(value){return type(value)=="string"&&regex_match(value,"^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$")}
 
-export func validate_command(command, payload, artifact) {
+export func validate_command(command, payload, artifact, transition_graph) {
     if command == "idea add" { return require_text(payload, "title") }
     if command == "campaign create" {
         error := require_text(payload, "name"); if error != "" { return error }
@@ -46,9 +47,7 @@ export func validate_command(command, payload, artifact) {
     if command == "claim" { return require_text(payload, "assignment_id") }
     if command == "status" {
         for key in ["record_id", "from_status", "to_status"] { error := require_text(payload, key); if error != "" { return error } }
-        allowed := ["idea", "triaged", "planned", "researching", "evidence_ready", "outlined", "drafting", "technical_review", "editorial_review", "ready_for_review", "approved", "scheduled", "published", "measuring", "learned", "archived", "blocked", "rejected", "refresh_needed"]
-        if !has(allowed, payload["from_status"]) || !has(allowed, payload["to_status"]) { return "invalid status transition endpoint" }
-        if payload["from_status"]==payload["to_status"] { return "status transition must change status" }
+        return validate_transition(payload, transition_graph)
     }
     if command == "block" {
         for key in ["record_id", "reason", "evidence"] { error := require_text(payload, key); if error != "" { return error } }

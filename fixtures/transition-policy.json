@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0.0",
+  "policy_id": "legal-review-house",
+  "transitions": {
+    "draft": ["legal_review", "rejected"],
+    "legal_review": ["draft", "approved", "rejected"],
+    "approved": ["archived"],
+    "rejected": ["draft", "archived"],
+    "archived": []
+  }
+}

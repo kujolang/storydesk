@@ -1,0 +1,85 @@
+from src.common import get, parse_object, safe_id
+from src.storage import initialize, validate_state_path
+
+func database_path(state) { return join_path(state, "storydesk.sqlite") }
+
+func connect(state) {
+    state_error := validate_state_path(state)
+    if state_error != "" { return {"ok": false, "code": "unsafe_state", "error": state_error} }
+    path := database_path(state)
+    if file_exists(path) && (path_is_symlink(path) || !path_is_file(path)) { return {"ok": false, "code": "unsafe_state", "error": "SQLite storage must be a regular non-symlink file"} }
+    mut db := null
+    try { db = db_connect("sqlite", path) } except error { return {"ok": false, "code": "storage_unavailable", "error": "could not open SQLite storage"} }
+    return {"ok": true, "db": db, "path": path}
+}
+
+export func initialize_sqlite(state, metadata) {
+    initialized := initialize(state, metadata); if !initialized["ok"] { return initialized }
+    opened := connect(state); if !opened["ok"] { return opened }; db := opened["db"]
+    mut ok := true
+    try {
+        db_query(db, "PRAGMA journal_mode=WAL", [])
+        db_query(db, "PRAGMA busy_timeout=5000", [])
+        db_execute(db, "CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, record_type TEXT NOT NULL, created_at TEXT NOT NULL, document TEXT NOT NULL, checksum TEXT NOT NULL)", [])
+        db_execute(db, "CREATE INDEX IF NOT EXISTS records_type_id ON records(record_type, id)", [])
+        db_execute(db, "CREATE TABLE IF NOT EXISTS history (event_id TEXT PRIMARY KEY, record_id TEXT NOT NULL UNIQUE, document TEXT NOT NULL)", [])
+        db_execute(db, "CREATE TRIGGER IF NOT EXISTS records_immutable_update BEFORE UPDATE ON records BEGIN SELECT RAISE(ABORT, 'records are immutable'); END", [])
+        db_execute(db, "CREATE TRIGGER IF NOT EXISTS records_immutable_delete BEFORE DELETE ON records BEGIN SELECT RAISE(ABORT, 'records are immutable'); END", [])
+        db_execute(db, "CREATE TRIGGER IF NOT EXISTS history_append_only_update BEFORE UPDATE ON history BEGIN SELECT RAISE(ABORT, 'history is append-only'); END", [])
+        db_execute(db, "CREATE TRIGGER IF NOT EXISTS history_append_only_delete BEFORE DELETE ON history BEGIN SELECT RAISE(ABORT, 'history is append-only'); END", [])
+    } except error { ok = false }
+    db_close(db)
+    if !ok { return {"ok": false, "code": "storage_init_failed", "error": "could not initialize SQLite storage"} }
+    return {"ok": true, "value": {"state": state, "initialized": true, "storage_adapter": "sqlite", "database": opened["path"]}}
+}
+
+export func save_new_sqlite(state, record) {
+    id := get(record, "id", ""); if !safe_id(id) { return {"ok": false, "code": "unsafe_id", "error": "unsafe record id"} }
+    serialized := to_json_pretty(record) + "\n"; if len(serialized) > 1048576 { return {"ok": false, "code": "record_too_large", "error": "serialized record exceeds 1 MiB"} }
+    checksum := sha256(serialized)
+    event_id := substring(sha256(record["created_at"] + "\n" + id), 0, 32)
+    event := {"schema_version": "1.0.0", "event": "record.created", "record_id": id, "actor": record["actor"], "at": record["created_at"], "record_sha256": checksum}
+    opened := connect(state); if !opened["ok"] { return opened }; db := opened["db"]
+    mut committed := false
+    try {
+        db_query(db, "PRAGMA busy_timeout=5000", [])
+        db_begin(db)
+        db_execute(db, "INSERT INTO records (id, record_type, created_at, document, checksum) VALUES (?, ?, ?, ?, ?)", [id, record["record_type"], record["created_at"], serialized, checksum])
+        db_execute(db, "INSERT INTO history (event_id, record_id, document) VALUES (?, ?, ?)", [event_id, id, to_json(event)])
+        db_commit(db); committed = true
+    } except error { try { db_rollback(db) } except rollback_error {} }
+    db_close(db)
+    if !committed { return {"ok": false, "code": "duplicate_id", "error": "record or audit event already exists, or SQLite write contention exceeded the retry window: " + id} }
+    return {"ok": true, "value": {"database": opened["path"], "checksum": checksum}}
+}
+
+export func load_record_sqlite(state, id) {
+    if !safe_id(id) { return {"ok": false, "code": "unsafe_id", "error": "unsafe record id"} }
+    opened := connect(state); if !opened["ok"] { return opened }; db := opened["db"]
+    mut rows := []
+    try { rows = db_query(db, "SELECT document, checksum FROM records WHERE id = ? LIMIT 1", [id]) } except error { db_close(db); return {"ok": false, "code": "read_failed", "error": "SQLite record read failed"} }
+    db_close(db)
+    if len(rows) == 0 { return {"ok": false, "code": "not_found", "error": "record not found: " + id} }
+    parsed := parse_object(rows[0]["document"], "record " + id); if !parsed["ok"] { return parsed }
+    if get(parsed["value"], "id", "") != id { return {"ok": false, "code": "id_mismatch", "error": "record id does not match SQLite key"} }
+    return {"ok": true, "value": parsed["value"], "checksum": rows[0]["checksum"]}
+}
+
+export func list_records_sqlite(state, kind, after, limit) {
+    opened := connect(state)
+    if !opened["ok"] { return {"records": [], "warnings": [{"id": "", "code": opened["code"], "error": opened["error"]}], "truncated": false} }
+    db := opened["db"]; mut rows := []
+    try {
+        if kind == "" { rows = db_query(db, "SELECT id, document FROM records WHERE id > ? ORDER BY id LIMIT ?", [after, limit + 1]) }
+        else { rows = db_query(db, "SELECT id, document FROM records WHERE record_type = ? AND id > ? ORDER BY id LIMIT ?", [kind, after, limit + 1]) }
+    } except error { db_close(db); return {"records": [], "warnings": [{"id": "", "code": "read_failed", "error": "SQLite listing failed"}], "truncated": false} }
+    db_close(db)
+    truncated := len(rows) > limit; mut records := []; mut warnings := []; mut index := 0
+    while index < len(rows) && index < limit {
+        parsed := parse_object(rows[index]["document"], "record " + rows[index]["id"])
+        if parsed["ok"] && get(parsed["value"], "id", "") == rows[index]["id"] { records = push(records, parsed["value"]) }
+        else { warnings = push(warnings, {"id": rows[index]["id"], "code": "malformed_json", "error": "SQLite record document is invalid"}) }
+        index = index + 1
+    }
+    return {"records": records, "warnings": warnings, "truncated": truncated}
+}

@@ -1,0 +1,36 @@
+from src.common import get, parse_object, safe_id
+from src.storage_adapter import storage_list_records
+
+func safe_checkpoint(path) {
+    if path == "" { return "packet generation requires --checkpoint" }
+    if file_exists(path) && (path_is_symlink(path) || !path_is_file(path)) { return "packet checkpoint must be a regular non-symlink file" }
+    return ""
+}
+
+export func generate_packet(adapter, state, kind, checkpoint_path, resume, page_size, maximum) {
+    error := safe_checkpoint(checkpoint_path); if error != "" { return {"ok": false, "code": "unsafe_checkpoint", "error": error} }
+    mut records := []; mut warnings := []; mut after := ""; mut pages := 0
+    if resume {
+        if !path_is_file(checkpoint_path) { return {"ok": false, "code": "checkpoint_not_found", "error": "--resume requires an existing checkpoint"} }
+        if file_size(checkpoint_path) > 67108864 { return {"ok": false, "code": "checkpoint_too_large", "error": "packet checkpoint exceeds 64 MiB"} }
+        parsed := parse_object(read_file(checkpoint_path), "packet checkpoint"); if !parsed["ok"] { return parsed }; checkpoint := parsed["value"]
+        if get(checkpoint, "schema_version", "") != "1.0.0" || get(checkpoint, "state", "") != state || get(checkpoint, "storage_adapter", "") != adapter || get(checkpoint, "type", "") != kind { return {"ok": false, "code": "checkpoint_mismatch", "error": "packet checkpoint does not match this state, adapter, or filter"} }
+        records = get(checkpoint, "records", []); warnings = get(checkpoint, "warnings", []); after = get(checkpoint, "after", ""); pages = get(checkpoint, "pages", 0)
+        if type(records) != "array" || type(warnings) != "array" || (after != "" && !safe_id(after)) { return {"ok": false, "code": "checkpoint_invalid", "error": "packet checkpoint has an invalid shape"} }
+        if get(checkpoint, "complete", false) == true { return {"ok": true, "value": {"schema_version": "1.0.0", "packet_kind": "generated", "records": records, "warnings": warnings, "record_count": len(records), "pages": pages, "checkpoint": checkpoint_path, "resumable": true}} }
+    } else if file_exists(checkpoint_path) { return {"ok": false, "code": "checkpoint_exists", "error": "checkpoint exists; use --resume or choose a new path"} }
+    mut done := false
+    while !done {
+        page := storage_list_records(adapter, state, kind, after, page_size)
+        for warning in page["warnings"] { warnings = push(warnings, warning) }
+        for record in page["records"] {
+            if len(records) >= maximum { return {"ok": false, "code": "packet_limit", "error": "packet generation reached --max-records before completion"} }
+            records = push(records, record); after = record["id"]
+        }
+        pages = pages + 1; done = !page["truncated"]
+        checkpoint := {"schema_version": "1.0.0", "state": state, "storage_adapter": adapter, "type": kind, "after": after, "pages": pages, "complete": done, "records": records, "warnings": warnings}
+        rendered := to_json_pretty(checkpoint) + "\n"; if len(rendered) > 67108864 { return {"ok": false, "code": "packet_too_large", "error": "packet checkpoint exceeds 64 MiB"} }
+        try { write_file_atomic(checkpoint_path, rendered, true) } except write_error { return {"ok": false, "code": "write_failed", "error": "atomic packet checkpoint write failed"} }
+    }
+    return {"ok": true, "value": {"schema_version": "1.0.0", "packet_kind": "generated", "records": records, "warnings": warnings, "record_count": len(records), "pages": pages, "checkpoint": checkpoint_path, "resumable": true}}
+}

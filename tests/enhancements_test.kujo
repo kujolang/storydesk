@@ -1,0 +1,48 @@
+from src.core import dispatch
+from src.args import parse_args
+from src.storage_adapter import storage_initialize, storage_save_new
+
+mut passed := 0; mut failed := 0
+func check(ok, label) { if ok { passed = passed + 1 } else { failed = failed + 1; eprint("FAIL: " + label) } }
+func opts(values) { return parse_args(values, ["json", "dry-run", "force", "resume", "require-signature"]) }
+
+root := "/tmp/storydesk-enhancements-" + uuid_v4()
+sqlite_state := root + "-sqlite"
+check(dispatch("init", opts(["--state", sqlite_state, "--storage-adapter", "sqlite"]))["ok"], "SQLite adapter initializes")
+created := dispatch("idea add", opts(["--state", sqlite_state, "--storage-adapter", "sqlite", "--input", "fixtures/core.json", "--actor", "editor", "--id", "idea-sqlite", "--timestamp", "2026-08-14T10:00:00Z"]))
+check(created["ok"], "SQLite adapter stores immutable records")
+check(dispatch("show", opts(["--state", sqlite_state, "--storage-adapter", "sqlite", "--id", "idea-sqlite"]))["ok"], "SQLite adapter reads records")
+db := db_connect("sqlite", sqlite_state + "/storydesk.sqlite"); mut update_blocked := false
+try { db_execute(db, "UPDATE records SET record_type = ? WHERE id = ?", ["changed", "idea-sqlite"]) } except error { update_blocked = true }
+db_close(db); check(update_blocked, "SQLite database trigger blocks record mutation")
+check(!dispatch("idea add", opts(["--state", sqlite_state, "--storage-adapter", "sqlite", "--input", "fixtures/core.json", "--actor", "editor", "--id", "idea-sqlite", "--timestamp", "2026-08-14T10:00:01Z"]))["ok"], "SQLite adapter preserves immutable IDs")
+check(!dispatch("show", opts(["--state", sqlite_state, "--id", "idea-sqlite"]))["ok"], "storage adapters cannot be silently mixed")
+
+status_input := root + "-status.json"
+write_file(status_input, to_json({"schema_version":"1.0.0","record_id":"brief-fixture","from_status":"draft","to_status":"legal_review"}), true)
+check(dispatch("status", opts(["--state", root + "-policy", "--input", status_input, "--actor", "legal-editor", "--transition-policy", "fixtures/transition-policy.json", "--timestamp", "2026-08-14T10:01:00Z"]))["ok"], "custom transition graph allows configured edge")
+write_file(status_input, to_json({"schema_version":"1.0.0","record_id":"brief-fixture","from_status":"draft","to_status":"approved"}), true)
+check(!dispatch("status", opts(["--state", root + "-policy", "--input", status_input, "--actor", "legal-editor", "--transition-policy", "fixtures/transition-policy.json", "--timestamp", "2026-08-14T10:01:01Z"]))["ok"], "custom transition graph denies missing edge")
+
+check(dispatch("adapter validate", opts(["--kind", "identity", "--input", "fixtures/adapters/identity.json"]))["ok"], "identity adapter conformance fixture")
+check(dispatch("adapter validate", opts(["--kind", "scheduling", "--input", "fixtures/adapters/scheduling.json"]))["ok"], "scheduling adapter conformance fixture")
+check(!dispatch("adapter validate", opts(["--kind", "identity", "--input", "fixtures/adapters/scheduling.json"]))["ok"], "adapter kind mismatch rejected")
+
+packet_state := root + "-packet"; metadata := {"schema_version":"1.0.0","tool":"storydesk","tool_version":"0.3.0","contract_version":"1.0.0","storage_adapter":"sqlite","created_at":"2026-08-14T10:02:00Z"}
+check(storage_initialize("sqlite", packet_state, metadata)["ok"], "packet state initialized")
+mut index := 0
+while index < 1005 {
+    suffix := to_string(100000 + index); id := "idea-packet-" + suffix
+    record := {"schema_version":"1.0.0","tool_version":"0.3.0","contract_version":"1.0.0","id":id,"record_type":"idea","command":"idea add","actor":"fixture","created_at":"2026-08-14T10:02:00Z","provenance":[],"payload":{"schema_version":"1.0.0","title":"Packet " + suffix}}
+    if !storage_save_new("sqlite", packet_state, record)["ok"] { failed = failed + 1; eprint("FAIL: seed packet record " + suffix); break }
+    index = index + 1
+}
+checkpoint := root + "-packet-checkpoint.json"; packet_output := root + "-packet-output.json"
+packet := dispatch("packet generate", opts(["--state", packet_state, "--storage-adapter", "sqlite", "--checkpoint", checkpoint, "--page-size", "400", "--max-records", "2000", "--output", packet_output]))
+check(packet["ok"] && path_is_file(checkpoint) && path_is_file(packet_output), "packet generation checkpoints atomically across bounded pages")
+if packet["ok"] { check(parse_json(read_file(packet_output))["data"]["record_count"] == 1005, "packet generation exceeds 1,000-record query window") }
+resumed := dispatch("packet generate", opts(["--state", packet_state, "--storage-adapter", "sqlite", "--checkpoint", checkpoint, "--resume", "--page-size", "400", "--max-records", "2000"]))
+check(resumed["ok"] && resumed["value"]["record_count"] == 1005, "completed packet checkpoint resumes idempotently")
+
+print(to_string(passed) + " passed; " + to_string(failed) + " failed")
+if failed > 0 { exit(1) }

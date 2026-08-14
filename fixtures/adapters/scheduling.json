@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "adapter_kind": "scheduling",
+  "adapter_id": "fixture-scheduling",
+  "records": [
+    {
+      "event_id": "event-42",
+      "record_id": "brief-fixture",
+      "starts_at": "2026-08-15T14:00:00Z",
+      "ends_at": "2026-08-15T14:30:00Z",
+      "timezone": "UTC"
+    }
+  ]
+}

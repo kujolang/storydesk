@@ -46,7 +46,7 @@ export func initialize(state, metadata) {
         if file_size(path) > 65536 { return {"ok": false, "code": "metadata_too_large", "error": "metadata exceeds 64 KiB"} }
         parsed := parse_object(read_file(path), "state metadata"); if !parsed["ok"] { return parsed }
         existing := parsed["value"]
-        if get(existing, "tool", "") != get(metadata, "tool", "") || get(existing, "contract_version", "") != get(metadata, "contract_version", "") { return {"ok": false, "code": "incompatible_state", "error": "state metadata belongs to an incompatible tool or contract"} }
+        if get(existing, "tool", "") != get(metadata, "tool", "") || get(existing, "contract_version", "") != get(metadata, "contract_version", "") || get(existing, "storage_adapter", "json") != get(metadata, "storage_adapter", "json") { return {"ok": false, "code": "incompatible_state", "error": "state metadata belongs to an incompatible tool, contract, or storage adapter"} }
     } else { write_file_atomic(path, to_json_pretty(metadata) + "\n", true) }
     return {"ok": true, "value": {"state": state, "initialized": true}}
 }

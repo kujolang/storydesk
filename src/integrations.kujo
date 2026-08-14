@@ -1,0 +1,32 @@
+from src.common import get, has, parse_object, safe_id, valid_timestamp, find_sensitive_key
+
+func require_adapter_text(value, key) {
+    field := get(value, key, "")
+    if type(field) != "string" || trim(field) == "" || len(field) > 1024 { return "missing or invalid field: " + key }
+    return ""
+}
+
+export func validate_adapter_fixture(kind, path) {
+    if !has(["identity", "scheduling"], kind) { return {"ok": false, "code": "unknown_adapter_kind", "error": "adapter kind must be identity or scheduling"} }
+    if !path_is_file(path) || path_is_symlink(path) { return {"ok": false, "code": "input_not_found", "error": "adapter fixture must be a regular non-symlink file"} }
+    if file_size(path) > 1048576 { return {"ok": false, "code": "input_too_large", "error": "adapter fixture exceeds 1 MiB"} }
+    parsed := parse_object(read_file(path), kind + " adapter fixture"); if !parsed["ok"] { return parsed }; value := parsed["value"]
+    sensitive := find_sensitive_key(value, ""); if sensitive != "" { return {"ok": false, "code": "secret_rejected", "error": "adapter fixture contains a sensitive field: " + sensitive} }
+    if get(value, "schema_version", "") != "1.0.0" || get(value, "adapter_kind", "") != kind { return {"ok": false, "code": "adapter_contract", "error": "adapter fixture schema or kind is incompatible"} }
+    error := require_adapter_text(value, "adapter_id"); if error != "" { return {"ok": false, "code": "adapter_contract", "error": error} }
+    if !safe_id(value["adapter_id"]) { return {"ok": false, "code": "adapter_contract", "error": "adapter_id must be a safe portable identifier"} }
+    records := get(value, "records", null); if type(records) != "array" || len(records) == 0 || len(records) > 1000 { return {"ok": false, "code": "adapter_contract", "error": "adapter fixture records must contain 1..1000 entries"} }
+    mut index := 0
+    for record in records {
+        if type(record) != "dict" { return {"ok": false, "code": "adapter_contract", "error": "adapter record must be an object"} }
+        if kind == "identity" {
+            for key in ["subject_id", "display_name", "provider"] { error = require_adapter_text(record, key); if error != "" { return {"ok": false, "code": "adapter_contract", "error": "record " + to_string(index) + ": " + error} } }
+            roles := get(record, "roles", null); if type(roles) != "array" || len(roles) > 64 { return {"ok": false, "code": "adapter_contract", "error": "identity roles must be a bounded array"} }
+        } else {
+            for key in ["event_id", "record_id", "starts_at", "ends_at", "timezone"] { error = require_adapter_text(record, key); if error != "" { return {"ok": false, "code": "adapter_contract", "error": "record " + to_string(index) + ": " + error} } }
+            if !valid_timestamp(record["starts_at"]) || !valid_timestamp(record["ends_at"]) || record["starts_at"] >= record["ends_at"] { return {"ok": false, "code": "adapter_contract", "error": "scheduling timestamps must be ordered RFC 3339 UTC values"} }
+        }
+        index = index + 1
+    }
+    return {"ok": true, "value": {"valid": true, "adapter_kind": kind, "adapter_id": value["adapter_id"], "records_checked": len(records), "fixture_sha256": sha256_file(path)}}
+}

@@ -1,0 +1,54 @@
+from src.common import get, has, parse_object, find_sensitive_key, canonical_json
+
+export func baseline_transition_graph() {
+    return {
+        "idea": ["triaged", "rejected", "archived"],
+        "triaged": ["planned", "rejected", "archived"],
+        "planned": ["researching", "blocked", "archived"],
+        "researching": ["evidence_ready", "blocked", "refresh_needed"],
+        "evidence_ready": ["outlined", "blocked", "refresh_needed"],
+        "outlined": ["drafting", "blocked"],
+        "drafting": ["technical_review", "editorial_review", "blocked"],
+        "technical_review": ["drafting", "editorial_review", "blocked"],
+        "editorial_review": ["drafting", "ready_for_review", "blocked"],
+        "ready_for_review": ["approved", "rejected", "drafting", "blocked"],
+        "approved": ["scheduled", "archived"],
+        "scheduled": ["published", "blocked"],
+        "published": ["measuring", "refresh_needed", "archived"],
+        "measuring": ["learned", "refresh_needed", "archived"],
+        "learned": ["archived", "refresh_needed"],
+        "blocked": ["planned", "researching", "drafting", "technical_review", "editorial_review", "ready_for_review", "scheduled", "archived"],
+        "rejected": ["triaged", "archived"],
+        "refresh_needed": ["researching", "planned", "archived"],
+        "archived": []
+    }
+}
+
+func validate_graph(graph) {
+    if type(graph) != "dict" || len(keys(graph)) == 0 || len(keys(graph)) > 128 { return {"ok": false, "code": "invalid_transition_policy", "error": "transition graph must be a non-empty object with at most 128 states"} }
+    for source in keys(graph) {
+        if !regex_match(source, "^[a-z][a-z0-9_]{1,63}$") || type(graph[source]) != "array" || len(graph[source]) > 128 { return {"ok": false, "code": "invalid_transition_policy", "error": "transition graph state or destination list is invalid: " + source} }
+        for destination in graph[source] {
+            if type(destination) != "string" || !has(keys(graph), destination) || destination == source { return {"ok": false, "code": "invalid_transition_policy", "error": "transition graph contains an unknown or self-referential edge"} }
+        }
+    }
+    return {"ok": true, "value": graph}
+}
+
+export func load_transition_graph(path) {
+    if path == "" { graph := baseline_transition_graph(); return {"ok": true, "value": graph, "source": "builtin", "policy_id": "portable-baseline", "sha256": sha256(canonical_json(graph))} }
+    if !path_is_file(path) || path_is_symlink(path) { return {"ok": false, "code": "transition_policy_not_found", "error": "transition policy must be a regular non-symlink file"} }
+    if file_size(path) > 262144 { return {"ok": false, "code": "transition_policy_too_large", "error": "transition policy exceeds 256 KiB"} }
+    parsed := parse_object(read_file(path), "transition policy"); if !parsed["ok"] { return parsed }
+    if find_sensitive_key(parsed["value"], "") != "" { return {"ok": false, "code": "secret_rejected", "error": "transition policy may not contain secret-shaped fields"} }
+    if get(parsed["value"], "schema_version", "") != "1.0.0" { return {"ok": false, "code": "incompatible_schema", "error": "transition policy schema_version must be 1.0.0"} }
+    checked := validate_graph(get(parsed["value"], "transitions", null)); if !checked["ok"] { return checked }
+    return {"ok": true, "value": checked["value"], "source": path, "policy_id": get(parsed["value"], "policy_id", "custom"), "sha256": sha256(canonical_json(checked["value"]))}
+}
+
+export func validate_transition(payload, graph) {
+    source := get(payload, "from_status", ""); destination := get(payload, "to_status", "")
+    if has_key(graph, source) == 0 || !has(keys(graph), destination) { return "invalid status transition endpoint" }
+    if !has(graph[source], destination) { return "transition is not allowed by the active editorial policy: " + source + " -> " + destination }
+    return ""
+}

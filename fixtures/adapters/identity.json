@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0.0",
+  "adapter_kind": "identity",
+  "adapter_id": "fixture-identity",
+  "records": [
+    {
+      "subject_id": "editor-42",
+      "display_name": "Fixture Editor",
+      "provider": "offline-fixture",
+      "roles": ["commissioning_editor", "reviewer"]
+    }
+  ]
+}
