@@ -1,0 +1,3 @@
+.storydesk/
+*.tmp-*
+.env

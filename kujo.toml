@@ -1,0 +1,4 @@
+[package]
+name = "storydesk"
+version = "0.1.0"
+entry = "storydesk.kujo"
