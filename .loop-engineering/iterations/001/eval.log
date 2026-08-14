@@ -1,0 +1,13 @@
+
+## gate: production_validation
+$ bash scripts/validate.sh
+check passed: storydesk.kujo
+12 passed; 0 failed
+8 passed; 0 failed
+9 passed; 0 failed
+StoryDesk validation passed.
+gate production_validation: pass
+
+## gate: diff_check
+$ git diff --check
+gate diff_check: pass

@@ -1,12 +1,12 @@
 from src.core import dispatch
-from cli import parse_args
+from src.args import parse_args
 mut pass:=0;mut fail:=0
 func check(ok,label){if ok{pass=pass+1}else{fail=fail+1;eprint("FAIL: "+label)}}
 root:="/tmp/storydesk-test-"+uuid_v4()
 func opts(v){return parse_args(v,["json","dry-run","force","act","yes"])}
 check(dispatch("init",opts(["--state",root]))["ok"],"init")
 created:=dispatch("idea add",opts(["--state",root,"--input","fixtures/core.json","--actor","fixture-human","--timestamp","2026-08-14T00:00:00Z"]))
-check(created["ok"],"core workflow");id:="";if created["ok"]{id=created["value"]["id"]}
+check(created["ok"],"core workflow");id:="";if created["ok"]{id=created["value"]["record"]["id"]}
 check(!dispatch("idea add",opts(["--state",root,"--input","fixtures/core.json","--actor","fixture-human","--timestamp","2026-08-14T00:00:00Z"]))["ok"],"duplicate")
 check(!dispatch("idea add",opts(["--state",root,"--input","fixtures/core.json"]))["ok"],"actor required")
 check(!dispatch("show",opts(["--state",root,"--id","../escape"]))["ok"],"traversal")

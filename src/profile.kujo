@@ -1,0 +1,13 @@
+export func profile() {
+    return {
+        "slug": "storydesk",
+        "name": "StoryDesk",
+        "version": "0.1.0",
+        "contract_version": "1.0.0",
+        "default_state": ".storydesk",
+        "description": "Editorial control desk for portable ideas, campaigns, commissions, assignments, dependencies, packets, handoffs, and review queues.",
+        "commands": ["idea add", "idea list", "campaign create", "commission create", "assign", "packet daily", "packet range", "claim", "status", "block", "handoff", "review-queue", "show", "export", "doctor", "version", "init", "validate", "history"],
+        "read_commands": ["idea list", "review-queue", "show", "export", "doctor", "version", "validate", "history"],
+        "limitations": ["StoryDesk never manufactures approval or publishes externally.", "Cross-process recurring generation is protected by deterministic IDs and per-record write locks; multi-host distributed locking is outside the local-first scope."]
+    }
+}

@@ -1,0 +1,30 @@
+from src.core import dispatch
+from src.args import parse_args
+
+mut passed := 0; mut failed := 0
+func check(ok, label) { if ok { passed = passed + 1 } else { failed = failed + 1; eprint("FAIL: " + label) } }
+func opts(values) { return parse_args(values, ["json", "dry-run", "force"]) }
+
+root := "/tmp/storydesk-security-" + uuid_v4()
+check(!dispatch("init", opts(["--state", root + "/../escape"]))["ok"], "state traversal rejected")
+secret := root + "-secret.json"; write_file(secret, "{\"schema_version\":\"1.0.0\",\"title\":\"safe title\",\"api_key\":\"must-not-store\"}", true)
+check(!dispatch("idea add", opts(["--state", root, "--input", secret, "--actor", "editor"]))["ok"], "secret-shaped fields rejected")
+check(!dispatch("idea add", opts(["--state", root, "--input", "fixtures/core.json", "--actor", "editor", "--timestamp", "not-a-time"]))["ok"], "invalid timestamp rejected")
+check(!dispatch("show", opts(["--state", root, "--id", "../escape"]))["ok"], "record traversal rejected")
+oversized := root + "-oversized.json"; write_file(oversized, "{" + repeat(" ", 1048576) + "}", true)
+check(!dispatch("idea add", opts(["--state", root, "--input", oversized, "--actor", "editor"]))["ok"], "oversized input rejected")
+created := dispatch("idea add", opts(["--state", root, "--input", "fixtures/core.json", "--actor", "editor", "--timestamp", "2026-08-14T01:00:00Z"]))
+check(created["ok"], "baseline record created")
+if created["ok"] {
+    id := created["value"]["record"]["id"]
+    create_dir(root + "/locks/idea-locked.lock")
+    locked_input := root + "-locked.json"; write_file(locked_input, "{\"schema_version\":\"1.0.0\",\"title\":\"locked\"}", true)
+    check(!dispatch("idea add", opts(["--state", root, "--input", locked_input, "--actor", "editor", "--id", "idea-locked", "--timestamp", "2026-08-14T01:00:01Z"]))["ok"], "concurrent write lock fails closed")
+    os_rmdir(root + "/locks/idea-locked.lock")
+    link_path := root + "/records/idea-link.json"
+    result := spawn_process(["ln", "-s", root + "/records/" + id + ".json", link_path], {"timeout_ms": 5000, "max_output_bytes": 4096})
+    if result.exitcode == 0 { check(!dispatch("show", opts(["--state", root, "--id", "idea-link"]))["ok"], "record symlink rejected") }
+}
+delete_file(secret); delete_file(oversized)
+print(to_string(passed) + " passed; " + to_string(failed) + " failed")
+if failed > 0 { exit(1) }

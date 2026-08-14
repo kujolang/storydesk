@@ -1,0 +1,63 @@
+from src.common import get, has
+
+export func record_type(command) {
+    if command == "idea add" { return "idea" }
+    if command == "campaign create" { return "campaign" }
+    if command == "commission create" { return "editorial_brief" }
+    if command == "assign" || command == "claim" { return "assignment" }
+    if command == "status" || command == "block" { return "status_event" }
+    if command == "handoff" { return "handoff" }
+    if command == "packet daily" || command == "packet range" { return "daily_packet" }
+    return replace_str(command, " ", "_")
+}
+
+export func id_prefix(command) {
+    kind := record_type(command)
+    if kind == "editorial_brief" { return "brief" }
+    if kind == "status_event" { return "event" }
+    if kind == "daily_packet" { return "packet" }
+    return replace_str(kind, "_", "-")
+}
+
+func require_text(payload, key) {
+    value := get(payload, key, "")
+    if type(value) != "string" || trim(value) == "" { return "missing required field: " + key }
+    if len(value) > 16384 { return "field exceeds 16 KiB: " + key }
+    return ""
+}
+
+export func validate_command(command, payload, artifact) {
+    if command == "idea add" { return require_text(payload, "title") }
+    if command == "campaign create" {
+        error := require_text(payload, "name"); if error != "" { return error }
+        return require_text(payload, "objective")
+    }
+    if command == "commission create" {
+        error := require_text(payload, "title"); if error != "" { return error }
+        error = require_text(payload, "audience"); if error != "" { return error }
+        return require_text(payload, "purpose")
+    }
+    if command == "assign" {
+        error := require_text(payload, "brief_id"); if error != "" { return error }
+        error = require_text(payload, "role"); if error != "" { return error }
+        return require_text(payload, "due_at")
+    }
+    if command == "claim" { return require_text(payload, "assignment_id") }
+    if command == "status" {
+        for key in ["record_id", "from_status", "to_status"] { error := require_text(payload, key); if error != "" { return error } }
+        allowed := ["idea", "triaged", "planned", "researching", "evidence_ready", "outlined", "drafting", "technical_review", "editorial_review", "ready_for_review", "approved", "scheduled", "published", "measuring", "learned", "archived", "blocked", "rejected", "refresh_needed"]
+        if !has(allowed, payload["to_status"]) { return "invalid to_status" }
+    }
+    if command == "block" {
+        for key in ["record_id", "reason", "evidence"] { error := require_text(payload, key); if error != "" { return error } }
+    }
+    if command == "handoff" {
+        for key in ["record_id", "from_actor", "to_actor", "next_action"] { error := require_text(payload, key); if error != "" { return error } }
+    }
+    if command == "packet daily" { return require_text(payload, "date") }
+    if command == "packet range" {
+        error := require_text(payload, "start_date"); if error != "" { return error }
+        return require_text(payload, "end_date")
+    }
+    return ""
+}

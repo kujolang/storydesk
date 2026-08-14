@@ -1,0 +1,26 @@
+from src.core import dispatch
+from src.args import parse_args
+
+mut passed := 0; mut failed := 0
+func check(ok, label) { if ok { passed = passed + 1 } else { failed = failed + 1; eprint("FAIL: " + label) } }
+func opts(values) { return parse_args(values, ["json", "dry-run", "force"]) }
+
+root := "/tmp/storydesk-domain-" + uuid_v4()
+missing := root + "-missing.json"; write_file(missing, "{\"schema_version\":\"1.0.0\"}", true)
+check(!dispatch("idea add", opts(["--state", root, "--input", missing, "--actor", "editor"]))["ok"], "ideas require title")
+campaign := root + "-campaign.json"; write_file(campaign, "{\"schema_version\":\"1.0.0\",\"name\":\"Launch\",\"objective\":\"Teach a portable workflow\"}", true)
+check(dispatch("campaign create", opts(["--state", root, "--input", campaign, "--actor", "editor", "--id", "campaign-launch", "--timestamp", "2026-08-14T02:00:00Z"]))["ok"], "campaign contract")
+brief := root + "-brief.json"; write_file(brief, "{\"schema_version\":\"1.0.0\",\"title\":\"Portable workflow\",\"audience\":\"editors\",\"purpose\":\"teach\"}", true)
+check(dispatch("commission create", opts(["--state", root, "--input", brief, "--actor", "editor", "--id", "brief-portable", "--timestamp", "2026-08-14T02:00:01Z"]))["ok"], "brief contract")
+bad_status := root + "-status.json"; write_file(bad_status, "{\"schema_version\":\"1.0.0\",\"record_id\":\"brief-portable\",\"from_status\":\"drafting\",\"to_status\":\"magically-done\"}", true)
+check(!dispatch("status", opts(["--state", root, "--input", bad_status, "--actor", "editor"]))["ok"], "unknown status rejected")
+config_path := root + "-config.json"; write_file(config_path, to_json({"state": root + "-configured", "actor": "configured-editor", "limit": 5}), true)
+check(dispatch("idea add", opts(["--config", config_path, "--input", "fixtures/core.json", "--id", "idea-configured", "--timestamp", "2026-08-14T02:00:02Z"]))["ok"], "config defaults")
+output := root + "-export.json"
+check(dispatch("export", opts(["--state", root, "--output", output]))["ok"] && path_is_file(output), "atomic export")
+check(!dispatch("export", opts(["--state", root, "--output", output]))["ok"], "export overwrite protected")
+check(dispatch("export", opts(["--state", root, "--output", output, "--force"]))["ok"], "force limited to explicit export replacement")
+check(dispatch("validate", opts(["--state", root]))["ok"], "state validates")
+for path in [missing, campaign, brief, bad_status, config_path, output] { if file_exists(path) { delete_file(path) } }
+print(to_string(passed) + " passed; " + to_string(failed) + " failed")
+if failed > 0 { exit(1) }
