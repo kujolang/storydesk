@@ -1,0 +1,35 @@
+from src.storage_adapter import storage_initialize, storage_list_records
+
+count := 5000
+if len(args()) > 0 && regex_match(args()[0], "^[0-9]+$") { count = to_int(args()[0]) }
+if count < 1000 || count > 20000 { eprint("record count must be 1000..20000"); exit(2) }
+root := "/tmp/storydesk-storage-benchmark-" + uuid_v4()
+metadata_json := {"schema_version":"1.0.0","tool":"storydesk","tool_version":"0.3.0","contract_version":"1.0.0","storage_adapter":"json","created_at":"2026-08-14T11:00:00Z"}
+metadata_sqlite := {"schema_version":"1.0.0","tool":"storydesk","tool_version":"0.3.0","contract_version":"1.0.0","storage_adapter":"sqlite","created_at":"2026-08-14T11:00:00Z"}
+if !storage_initialize("json", root + "-json", metadata_json)["ok"] || !storage_initialize("sqlite", root + "-sqlite", metadata_sqlite)["ok"] { eprint("benchmark initialization failed"); exit(1) }
+db := db_connect("sqlite", root + "-sqlite/storydesk.sqlite"); db_begin(db)
+mut index := 0
+while index < count {
+    id := "idea-benchmark-" + to_string(100000 + index)
+    record := {"schema_version":"1.0.0","tool_version":"0.3.0","contract_version":"1.0.0","id":id,"record_type":"idea","command":"idea add","actor":"benchmark","created_at":"2026-08-14T11:00:00Z","provenance":[],"payload":{"schema_version":"1.0.0","title":"Benchmark record " + to_string(index)}}
+    serialized := to_json_pretty(record) + "\n"; checksum := sha256(serialized)
+    write_file(root + "-json/records/" + id + ".json", serialized, true)
+    db_execute(db, "INSERT INTO records (id, record_type, created_at, document, checksum) VALUES (?, ?, ?, ?, ?)", [id, "idea", record["created_at"], serialized, checksum])
+    index = index + 1
+}
+db_commit(db); db_close(db)
+func scan(adapter, state) {
+    mut after := ""; mut total := 0; mut done := false
+    while !done { page := storage_list_records(adapter, state, "idea", after, 250); for record in page["records"] { total = total + 1; after = record["id"] }; done = !page["truncated"] }
+    return total
+}
+json_start := time(); json_total := 0; mut pass := 0
+while pass < 3 { json_total = scan("json", root + "-json"); pass = pass + 1 }
+json_ms := time() - json_start
+sqlite_start := time(); sqlite_total := 0; pass = 0
+while pass < 3 { sqlite_total = scan("sqlite", root + "-sqlite"); pass = pass + 1 }
+sqlite_ms := time() - sqlite_start
+ratio := 0.0; if sqlite_ms > 0 { ratio = json_ms / sqlite_ms }
+eligible := json_total == count && sqlite_total == count && ratio >= 2.0
+print(to_json_pretty({"schema_version":"1.0.0","records":count,"full_scans":3,"json_ms":json_ms,"sqlite_ms":sqlite_ms,"sqlite_speedup":ratio,"eligibility_threshold":2.0,"sqlite_adapter_eligible":eligible,"state_root":root}))
+if !eligible { exit(1) }

@@ -1,6 +1,6 @@
 # StoryDesk
 
-[![Version](https://img.shields.io/badge/version-0.2.0-black)](VERSION)
+[![Version](https://img.shields.io/badge/version-0.3.0-black)](VERSION)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 [![built with Kujo](https://img.shields.io/badge/built%20with-Kujo-white.svg)](https://github.com/kujolang/kujo)
 [![CI](https://github.com/kujolang/storydesk/actions/workflows/validate.yml/badge.svg)](https://github.com/kujolang/storydesk/actions/workflows/validate.yml)
@@ -14,11 +14,13 @@ House tool.
 ## Readiness posture
 
 StoryDesk is ready for serious standalone editorial operations with immutable
-records, append-only audit events, atomic writes, per-record concurrency locks,
-bounded queries, deterministic fixtures, structured errors, and explicit
-authority boundaries. “Enterprise grade” is treated as a continuously verified
-standard—not a marketing label. It does not claim distributed multi-host
-coordination, hosted identity, or publication authority.
+records, append-only audit events, atomic writes, policy-controlled transitions,
+resumable packet generation, optional signed handoff bundles, deterministic
+integration fixtures, and explicit authority boundaries. JSON remains the
+portable default; benchmark-qualified SQLite is opt-in for large houses.
+“Enterprise grade” is treated as a continuously verified standard—not a
+marketing label. StoryDesk does not claim distributed multi-host coordination,
+hosted identity, or publication authority.
 
 See the evidence-backed [production review](docs/PRODUCTION_READINESS_REVIEW.md)
 and [next-session worklist](docs/NEXT_SESSION.md).
@@ -82,9 +84,11 @@ storydesk idea list --config storydesk.json --after idea-previous --json
 | `status`, `block` | Append validated status or blocking-evidence events. |
 | `handoff` | Record explicit ownership transfer and next action. |
 | `packet daily`, `packet range` | Create deterministic work-packet records. |
+| `packet generate` | Build and resume packet snapshots beyond one query page. |
 | `review-queue` | Query work awaiting human review. |
 | `show`, `history` | Inspect immutable records and audit-oriented listings. |
-| `export` | Emit or atomically write a bounded portable JSON bundle. |
+| `export`, `export verify` | Write portable bundles and optionally sign/verify them. |
+| `adapter validate` | Validate offline identity or scheduling adapter fixtures. |
 | `validate`, `doctor`, `version` | Verify records, environment health, and compatibility. |
 
 ## Common flags
@@ -92,6 +96,8 @@ storydesk idea list --config storydesk.json --after idea-previous --json
 | Flag | Behavior |
 | --- | --- |
 | `--state PATH` | Explicit local state directory. Traversal and symlinks are rejected. |
+| `--storage-adapter` | `json` by default; opt in to benchmark-qualified `sqlite`. |
+| `--transition-policy FILE` | Use an organization-owned transition graph. |
 | `--config FILE` | JSON defaults for `state`, `actor`, and `limit`. |
 | `--input FILE` | Command payload, limited to 1 MiB. |
 | `--actor ID` | Required identity for every mutation. |
@@ -99,6 +105,8 @@ storydesk idea list --config storydesk.json --after idea-previous --json
 | `--id ID` | Explicit stable, type-prefixed record ID. |
 | `--type`, `--after`, `--limit` | Bounded filtering and cursor pagination. |
 | `--output FILE` | Atomic JSON export, never implicit overwrite. |
+| `--checkpoint FILE`, `--resume` | Atomically checkpoint and resume packet generation. |
+| `--private-key`, `--public-key` | Opt-in external RSA signing material for exports. |
 | `--force` | Permits only explicitly named safe export replacement. |
 | `--dry-run` | Run validation and record construction without writes. |
 | `--json` | Stable `ok/data/error/error_code/tool_version/contract_version` envelope. |
@@ -119,6 +127,53 @@ StoryDesk operates under OBSERVE and PROPOSE. It never manufactures approval,
 silently resolves evidence failures, calls publication APIs, or marks work
 published because a file exists. See [contracts](docs/contracts.md) and the
 [security model](docs/security.md).
+
+### Optional SQLite adapter
+
+The portable JSON adapter remains the default. A repeatable 1,000-record,
+three-full-scan benchmark on macOS measured 22,510 ms for immutable JSON and
+6,608 ms for SQLite, a 3x advantage over the 2x admission threshold. Re-run the
+decision gate on the target launch environment:
+
+```bash
+kujo run scripts/storage_benchmark.kujo -- 5000
+storydesk init --state .storydesk-sqlite --storage-adapter sqlite --json
+```
+
+Adapters are recorded in state metadata and cannot be mixed silently.
+
+### Policy transitions and signed handoff
+
+```bash
+storydesk status --input status.json --actor editor \
+  --transition-policy fixtures/transition-policy.json --json
+
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out private.pem
+openssl pkey -in private.pem -pubout -out public.pem
+storydesk export --output handoff.json \
+  --private-key private.pem --public-key public.pem --json
+storydesk export verify --input handoff.json \
+  --public-key public.pem --require-signature --json
+```
+
+Signing keys are read from explicit regular files, bounded to 1 MiB, and never
+written into state or bundles. Distribute the public key through a separately
+trusted channel.
+
+### Resumable packets and adapter conformance
+
+```bash
+storydesk packet generate --state .storydesk --checkpoint packet.checkpoint.json \
+  --page-size 500 --max-records 100000 --output packet.json --json
+storydesk packet generate --state .storydesk --checkpoint packet.checkpoint.json \
+  --resume --output packet.json --force --json
+
+storydesk adapter validate --kind identity --input fixtures/adapters/identity.json --json
+storydesk adapter validate --kind scheduling --input fixtures/adapters/scheduling.json --json
+```
+
+Packet checkpoints bind the state, adapter, and record-type filter. Every page
+is written atomically, so interrupted runs resume without duplicating records.
 
 ## Project structure
 

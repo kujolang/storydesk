@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 - 2026-08-14
+
+- Added a benchmark-qualified opt-in SQLite storage adapter with transactional immutable records and audit events.
+- Added configurable editorial transition graphs with policy provenance.
+- Added optional RSA-signed export bundles and trusted-key verification.
+- Added resumable, atomic multi-page packet generation beyond 1,000 records.
+- Added offline identity and scheduling adapter conformance fixtures.
+- Added macOS/Linux/Windows multi-process contention benchmark gates.
+
 ## Unreleased
 
 - Standardized README badge ordering and repository-local artifact ignores.
