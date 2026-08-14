@@ -20,4 +20,4 @@ The script exits nonzero unless counts match and the measured speedup meets the 
 
 `scripts/contention_benchmark.sh` launches concurrent processes against one immutable ID and a second wave against independent IDs for both adapters. Exactly one colliding writer and every independent writer must succeed; all losing writes must fail closed and the resulting state must validate.
 
-The local macOS launch run passed with 16 workers for JSON and SQLite. The required GitHub Actions matrix repeats the benchmark with 24 workers on `ubuntu-latest`, `macos-latest`, and `windows-latest`, and retains one JSON artifact per launch environment. A failure in any environment fails CI.
+The local macOS launch run passed with 16 workers for JSON and SQLite. The required GitHub Actions matrix repeats the benchmark with 24 workers on `ubuntu-latest`, `macos-latest`, and `windows-latest` using checksum-verified Kujo 1.0.1 release binaries, and retains one JSON artifact per launch environment. A failure in any environment fails CI.
