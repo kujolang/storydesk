@@ -15,7 +15,7 @@ check(created["ok"], "SQLite adapter stores immutable records")
 check(dispatch("show", opts(["--state", sqlite_state, "--storage-adapter", "sqlite", "--id", "idea-sqlite"]))["ok"], "SQLite adapter reads records")
 db := db_connect("sqlite", sqlite_state + "/storydesk.sqlite"); mut update_blocked := false
 try { db_execute(db, "UPDATE records SET record_type = ? WHERE id = ?", ["changed", "idea-sqlite"]) } except error { update_blocked = true }
-db_close(db); db = null; check(update_blocked, "SQLite database trigger blocks record mutation")
+db_close(db); check(update_blocked, "SQLite database trigger blocks record mutation")
 check(!dispatch("idea add", opts(["--state", sqlite_state, "--storage-adapter", "sqlite", "--input", "fixtures/core.json", "--actor", "editor", "--id", "idea-sqlite", "--timestamp", "2026-08-14T10:00:01Z"]))["ok"], "SQLite adapter preserves immutable IDs")
 check(!dispatch("show", opts(["--state", sqlite_state, "--id", "idea-sqlite"]))["ok"], "storage adapters cannot be silently mixed")
 

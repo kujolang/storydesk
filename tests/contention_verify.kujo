@@ -14,7 +14,7 @@ if adapter == "json" {
     }
 } else {
     db := db_connect("sqlite", state + "/storydesk.sqlite")
-    events := db_query(db, "SELECT document FROM history", []); db_close(db); db = null
+    events := db_query(db, "SELECT document FROM history", []); db_close(db)
     if len(events) != expected { eprint("SQLite audit count failed"); exit(1) }
     for row in events {
         event := parse_json(row["document"]); loaded := storage_load_record(adapter, state, event["record_id"])

@@ -27,8 +27,9 @@ and [next-session worklist](docs/NEXT_SESSION.md).
 
 ## Quick install
 
-StoryDesk requires Kujo revision `cf785c0a7953717af16b657cda05b85d628144c5`
-for bounded directory paging. Released 1.4.0 binaries predate that capability.
+StoryDesk requires Kujo revision `5356b247a7bb3322874c6a2e11af17783fe5c8fd`
+for bounded directory paging and native database lifetime fixes. Released 1.5.0
+binaries predate the database lifetime fixes.
 See the [pinned runtime build instructions](docs/runtime.md).
 
 ```bash

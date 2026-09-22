@@ -1,5 +1,3 @@
-// Drop raw database fixture references before calling cleanup: the pinned runtime
-// acknowledges db_close but retains the connection while its value is reachable.
 // Remove only this test's UUID-scoped temporary family, including dangling links.
 func remove_tree(path) {
     if path_is_symlink(path) { delete_file(path); return }

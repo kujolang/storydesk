@@ -12,6 +12,15 @@ check(!valid_timestamp("2026-04-31T00:00:00Z"), "impossible UTC date rejected")
 check(timestamp_order_key("2026-09-22T12:00:00Z") < timestamp_order_key("2026-09-22T12:00:00.1Z"), "fractional UTC ordering")
 check(timestamp_order_key("2026-09-22T12:00:00.1Z") == timestamp_order_key("2026-09-22T12:00:00.100Z"), "equivalent UTC fractions compare equal")
 root := "/tmp/storydesk-hardening-" + uuid_v4()
+closed_path := root + "-closed.sqlite"
+let closed_db := db_connect("sqlite", closed_path)
+let retained_aliases := [closed_db]
+check(db_close(closed_db) == true, "native database close succeeds")
+mut closed_query_rejected := false
+try { db_query(retained_aliases[0], "SELECT 1", []) } except error { closed_query_rejected = true }
+check(closed_query_rejected, "native close invalidates retained aliases")
+check(db_close(retained_aliases[0]) == true, "native close is idempotent")
+check(delete_file(closed_path), "native close releases SQLite file while aliases remain")
 for adapter in ["json", "sqlite"] {
     state := root + "-dry-" + adapter
     result := dispatch("idea add", opts(["--state", state, "--storage-adapter", adapter, "--input", "fixtures/core.json", "--actor", "editor", "--dry-run"]))
@@ -34,7 +43,7 @@ check(dispatch("init", opts(["--state", state, "--storage-adapter", "sqlite"]))[
 corrupt := root + "-corrupt"; dispatch("init", opts(["--state", corrupt, "--storage-adapter", "sqlite"]))
 db := db_connect("sqlite", corrupt + "/storydesk.sqlite")
 for id in ["idea-corrupt-a", "idea-corrupt-b"] { db_execute(db, "INSERT INTO records (id, record_type, created_at, document, checksum) VALUES (?, ?, ?, ?, ?)", [id, "idea", "2026-09-22T12:00:00Z", "{", "bad"]) }
-db_close(db); db = null
+db_close(db)
 checkpoint := root + "-corrupt-checkpoint.json"
 packet := dispatch("packet generate", opts(["--state", corrupt, "--storage-adapter", "sqlite", "--checkpoint", checkpoint, "--page-size", "1"]))
 check(!packet["ok"] && packet["code"] == "packet_storage_error" && !file_exists(checkpoint), "corrupt packet page fails without looping or saving partial success")

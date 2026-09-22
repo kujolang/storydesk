@@ -30,7 +30,7 @@ for adapter in ["json","sqlite"] {
     if adapter == "json" { write_file(state + "/history/00000000000000000000000000000000.json","{}",true) }
     else {
         db := db_connect("sqlite",state + "/storydesk.sqlite")
-        db_execute(db,"INSERT INTO history(event_id,record_id,document) VALUES(?,?,?)",["00000000000000000000000000000000","idea-orphan","{}"]); db_close(db); db = null
+        db_execute(db,"INSERT INTO history(event_id,record_id,document) VALUES(?,?,?)",["00000000000000000000000000000000","idea-orphan","{}"]); db_close(db)
     }
     check(!dispatch("history audit",opts(["--state",state,"--storage-adapter",adapter]))["ok"], "orphan audit entry detected")
     if adapter == "json" {
@@ -39,7 +39,7 @@ for adapter in ["json","sqlite"] {
     } else {
         db := db_connect("sqlite",state + "/storydesk.sqlite")
         db_execute(db,"DROP TRIGGER records_immutable_update",[])
-        db_execute(db,"UPDATE records SET document = ? WHERE id = ?",[to_json({"id":"idea-topic","created_at":"2026-09-22T12:00:00Z"}),"idea-topic"]); db_close(db); db = null
+        db_execute(db,"UPDATE records SET document = ? WHERE id = ?",[to_json({"id":"idea-topic","created_at":"2026-09-22T12:00:00Z"}),"idea-topic"]); db_close(db)
     }
     check(!dispatch("history audit",opts(["--state",state,"--storage-adapter",adapter,"--id","idea-topic"]))["ok"], "missing event or changed record detected")
 }
