@@ -3,7 +3,7 @@ from src.storage_adapter import storage_initialize, storage_list_records, storag
 from src.packets import generate_packet
 from src.core import dispatch
 from src.args import parse_args
-from src.common import get
+from src.common import get, safe_cursor
 
 mut passed := 0
 func check(ok, label) { if !ok { eprint("FAIL: " + label); exit(1) }; passed = passed + 1 }
@@ -66,10 +66,12 @@ for adapter in ["json","sqlite"] {
     check(generate_packet(adapter,state,"",checkpoint,true,1,10)["ok"], adapter + " prefix IDs resume in adapter order")
 }
 // Opaque continuation must also traverse malformed filenames without losing diagnostics.
+// Spaces are legal on all supported filesystems; control cursors are checked directly.
+check(safe_cursor("bad-1000\t"), "opaque cursor accepts escaped control bytes without path access")
 state := root + "-bad-names"
 storage_initialize("json",state,{"tool":"storydesk","contract_version":"1.0.0","storage_adapter":"json"})
 mut bad := 0
-while bad < 70 { write_file(state + "/records/bad-" + to_string(1000 + bad) + "\t.json","{}",true); bad = bad + 1 }
+while bad < 70 { write_file(state + "/records/bad-" + to_string(1000 + bad) + " .json","{}",true); bad = bad + 1 }
 first := dispatch("idea list",parse_args(["--state",state],[]))
 second := dispatch("idea list",parse_args(["--state",state,"--after",first["value"]["next_after"]],[]))
 check(first["ok"] && second["ok"] && len(first["value"]["warnings"]) == 64 && len(second["value"]["warnings"]) == 6 && !second["value"]["truncated"], "CLI cursor traverses all escaped malformed-name diagnostics")
