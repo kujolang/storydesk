@@ -27,8 +27,19 @@ jobs:
         with:
           toolchain: stable
       - name: Build pinned Kujo runtime
+        if: runner.os != 'Windows'
         shell: bash
         run: cargo build --locked --release --manifest-path .runtime/kujo/Cargo.toml
+      - name: Build pinned Kujo runtime with native Windows tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Git Bash puts its incomplete MSYS Perl ahead of native Perl.
+          (Get-Command perl.exe).Source
+          perl -MIPC::Cmd -e 1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build --locked --release --manifest-path .runtime/kujo/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Validate full suite and contention
         shell: bash
         env:
