@@ -41,7 +41,7 @@ independent of altered database metadata.
 
 ## Local evidence
 
-`tests/paging_test.kujo`: 26 checks. `tests/projections_test.kujo`: 24 checks.
+`tests/paging_test.kujo`: 27 checks. `tests/projections_test.kujo`: 24 checks.
 `tests/signature_versions_test.kujo`: 12 checks plus CLI authenticated-time
 policy. The preexisting 74 assertions remain enabled.
 

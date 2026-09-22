@@ -184,7 +184,7 @@ export func dispatch(command, parsed) {
     if has(p["list_commands"], command) {
         limit_result := bounded_int(setting(parsed, config, "limit", 100), 100, 1, 1000); if !limit_result["ok"] { return limit_result }
         kind := flag(parsed, "type", get(p["list_kinds"], command, ""))
-        after := flag(parsed, "after", ""); if after != "" && !safe_cursor(after) { return {"ok": false, "code": "unsafe_cursor", "error": "pagination cursor must be a printable filename component"} }
+        after := flag(parsed, "after", ""); if after != "" && !safe_cursor(after) { return {"ok": false, "code": "unsafe_cursor", "error": "pagination cursor must be a bounded filename component"} }
         listing := storage_list_records(adapter, state, kind, after, limit_result["value"])
         if len(listing["warnings"]) > 0 && has(["unsafe_state", "incompatible_state", "read_failed", "storage_unavailable"], listing["warnings"][0]["code"]) { return {"ok": false, "code": listing["warnings"][0]["code"], "error": listing["warnings"][0]["error"]} }
         return {"ok": true, "value": listing}
@@ -218,7 +218,7 @@ export func dispatch(command, parsed) {
     }
     if has(p["export_commands"], command) {
         limit_result := bounded_int(setting(parsed, config, "limit", 1000), 1000, 1, 1000); if !limit_result["ok"] { return limit_result }
-        after := flag(parsed, "after", ""); if after != "" && !safe_cursor(after) { return {"ok": false, "code": "unsafe_cursor", "error": "pagination cursor must be a printable filename component"} }
+        after := flag(parsed, "after", ""); if after != "" && !safe_cursor(after) { return {"ok": false, "code": "unsafe_cursor", "error": "pagination cursor must be a bounded filename component"} }
         listing := storage_list_records(adapter, state, flag(parsed, "type", ""), after, limit_result["value"])
         if len(listing["warnings"]) > 0 && has(["unsafe_state", "incompatible_state", "read_failed", "storage_unavailable"], listing["warnings"][0]["code"]) { return {"ok": false, "code": listing["warnings"][0]["code"], "error": listing["warnings"][0]["error"]} }
         bundle := {"schema_version": "1.0.0", "tool": p["slug"], "storage_adapter": adapter, "records": listing["records"], "warnings": listing["warnings"], "truncated": listing["truncated"], "next_after": get(listing, "next_after", after)}

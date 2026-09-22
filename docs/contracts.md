@@ -21,7 +21,10 @@ Dry-run record commands validate and construct records without initializing or c
 Record list results retain `records`, `warnings`, and `truncated` and add
 `next_after`, `document_bytes`, and `scanned`. Always pass `next_after` back as
 `--after` when `truncated` is true, including empty filtered pages or pages of
-warnings. A limit is an upper bound, not a promised page length. Query pages
+warnings. Cursors are comparison-only basename values; malformed filenames
+may include control characters escaped in the JSON receipt. Passing that exact
+cursor does not open or execute it. Slash, backslash, NUL and oversized cursors
+remain rejected. A limit is an upper bound, not a promised page length. Query pages
 retain at most 4 MiB of serialized documents, scan at most 1,000 candidates,
 and emit at most 64 warnings. SQLite's one-row lookahead also stays inside the
 same 4 MiB document budget. JSON retains at most 1,001 directory names at a
