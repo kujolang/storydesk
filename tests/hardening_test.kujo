@@ -34,7 +34,7 @@ check(dispatch("init", opts(["--state", state, "--storage-adapter", "sqlite"]))[
 corrupt := root + "-corrupt"; dispatch("init", opts(["--state", corrupt, "--storage-adapter", "sqlite"]))
 db := db_connect("sqlite", corrupt + "/storydesk.sqlite")
 for id in ["idea-corrupt-a", "idea-corrupt-b"] { db_execute(db, "INSERT INTO records (id, record_type, created_at, document, checksum) VALUES (?, ?, ?, ?, ?)", [id, "idea", "2026-09-22T12:00:00Z", "{", "bad"]) }
-db_close(db)
+db_close(db); db = null
 checkpoint := root + "-corrupt-checkpoint.json"
 packet := dispatch("packet generate", opts(["--state", corrupt, "--storage-adapter", "sqlite", "--checkpoint", checkpoint, "--page-size", "1"]))
 check(!packet["ok"] && packet["code"] == "packet_storage_error" && !file_exists(checkpoint), "corrupt packet page fails without looping or saving partial success")

@@ -24,7 +24,7 @@ for adapter in ["json", "sqlite"] {
         else { db_execute(db,"INSERT INTO records (id,record_type,created_at,document,checksum) VALUES (?,?,?,?,?)",[id,"idea","2026-09-22T00:00:00Z",document,sha256(document)]) }
         i = i + 1
     }
-    if adapter == "sqlite" { db_commit(db); db_close(db) }
+    if adapter == "sqlite" { db_commit(db); db_close(db); db = null }
     mut cursor := ""; mut count := 0; mut warnings := 0; mut done := false; mut pages := 0
     while !done {
         page := storage_list_records(adapter,state,"",cursor,1000)
@@ -59,7 +59,7 @@ for adapter in ["json","sqlite"] {
         if adapter == "json" { write_file(state + "/records/" + id + ".json",document,true) }
         else { db_execute(db,"INSERT INTO records(id,record_type,created_at,document,checksum) VALUES(?,?,?,?,?)",[id,"idea","2026-09-22T00:00:00Z",document,sha256(document)]) }
     }
-    if adapter == "sqlite" { db_close(db) }
+    if adapter == "sqlite" { db_close(db); db = null }
     checkpoint := root + "-prefix-checkpoint-" + adapter + ".json"
     packet := generate_packet(adapter,state,"",checkpoint,false,1,10)
     check(packet["ok"] && packet["value"]["record_count"] == 3, adapter + " prefix IDs traverse exactly once")
