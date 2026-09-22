@@ -3,6 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KUJO_RUNTIME="${KUJO_BIN:-$ROOT/../kujo/target/release/kujo}"
 workers="${1:-16}"
+if [[ ! "$workers" =~ ^[0-9]+$ ]] || (( workers < 2 || workers > 128 )); then printf 'workers must be 2..128\n' >&2; exit 2; fi
 tmp="$(mktemp -d)"
 trap 'find "$tmp" -depth -delete' EXIT
 run_adapter() {
@@ -23,6 +24,7 @@ run_adapter() {
   for pid in "${pids[@]}"; do if wait "$pid"; then independent=$((independent + 1)); fi; done
   if [[ "$independent" -ne "$workers" ]]; then printf '%s adapter persisted only %s/%s independent writers\n' "$adapter" "$independent" "$workers" >&2; return 1; fi
   "$KUJO_RUNTIME" run "$ROOT/storydesk.kujo" -- validate --state "$state" --storage-adapter "$adapter" --json >/dev/null
+  "$KUJO_RUNTIME" run "$ROOT/tests/contention_verify.kujo" -- "$state" "$adapter" "$((workers + 1))"
   printf '{"adapter":"%s","workers":%s,"collision_winners":%s,"independent_writers":%s,"immutable_winner":true}\n' "$adapter" "$workers" "$successes" "$independent"
 }
 printf '{"platform":"%s","results":[' "$(uname -s)"

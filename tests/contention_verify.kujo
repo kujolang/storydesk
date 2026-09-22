@@ -1,0 +1,23 @@
+from src.storage_adapter import storage_list_records, storage_load_record
+from src.common import parse_object
+
+state := args()[0]; adapter := args()[1]; expected := to_int(args()[2])
+page := storage_list_records(adapter, state, "", "", 1000)
+if len(page["warnings"]) != 0 || page["truncated"] || len(page["records"]) != expected { eprint("contention record count or listing integrity failed"); exit(1) }
+if adapter == "json" {
+    if len(list_dir(state + "/history")) != expected || len(list_dir(state + "/locks")) != 0 { eprint("history count or lock cleanup failed"); exit(1) }
+    for record in page["records"] {
+        path := state + "/history/" + substring(sha256(record["created_at"] + "\n" + record["id"]), 0, 32) + ".json"
+        event := parse_object(read_file(path), "audit event")
+        loaded := storage_load_record(adapter, state, record["id"])
+        if !event["ok"] || !loaded["ok"] || event["value"]["record_sha256"] != loaded["checksum"] || event["value"]["actor"] != record["actor"] { eprint("record and audit winner differ"); exit(1) }
+    }
+} else {
+    db := db_connect("sqlite", state + "/storydesk.sqlite")
+    events := db_query(db, "SELECT document FROM history", []); db_close(db)
+    if len(events) != expected { eprint("SQLite audit count failed"); exit(1) }
+    for row in events {
+        event := parse_json(row["document"]); loaded := storage_load_record(adapter, state, event["record_id"])
+        if !loaded["ok"] || event["record_sha256"] != loaded["checksum"] || event["actor"] != loaded["value"]["actor"] { eprint("SQLite record and audit winner differ"); exit(1) }
+    }
+}

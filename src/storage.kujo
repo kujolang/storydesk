@@ -1,13 +1,4 @@
-from src.common import get, parse_object, safe_id, canonical_json
-
-func parent_dir(path) {
-    mut index := len(path) - 1
-    while index >= 0 {
-        if substring(path, index, index + 1) == "/" { if index == 0 { return "/" }; return substring(path, 0, index) }
-        index = index - 1
-    }
-    return "."
-}
+from src.common import get, parse_object, safe_id
 
 func ensure_tree(path) {
     if path == "" || path == "." { return "" }
@@ -47,7 +38,12 @@ export func initialize(state, metadata) {
         parsed := parse_object(read_file(path), "state metadata"); if !parsed["ok"] { return parsed }
         existing := parsed["value"]
         if get(existing, "tool", "") != get(metadata, "tool", "") || get(existing, "contract_version", "") != get(metadata, "contract_version", "") || get(existing, "storage_adapter", "json") != get(metadata, "storage_adapter", "json") { return {"ok": false, "code": "incompatible_state", "error": "state metadata belongs to an incompatible tool, contract, or storage adapter"} }
-    } else { write_file_atomic(path, to_json_pretty(metadata) + "\n", true) }
+    } else {
+        try { write_file_atomic(path, to_json_pretty(metadata) + "\n", false) } except error {
+            if file_exists(path) { return initialize(state, metadata) }
+            return {"ok": false, "code": "write_failed", "error": "atomic metadata write failed"}
+        }
+    }
     return {"ok": true, "value": {"state": state, "initialized": true}}
 }
 
@@ -57,10 +53,14 @@ func acquire_lock(state, id) {
     path := lock_path(state, id)
     if path_is_dir(path) { return {"ok": false, "code": "write_conflict", "error": "record write is locked: " + id} }
     try { create_dir(path) } except error { return {"ok": false, "code": "write_conflict", "error": "could not acquire record lock: " + id} }
+    // create_dir is idempotent in Kujo; only exclusive file publication owns the lock.
+    try { write_file_atomic(join_path(path, "owner"), "locked\n", false) } except error { return {"ok": false, "code": "write_conflict", "error": "could not acquire record lock: " + id} }
     return {"ok": true, "path": path}
 }
 
-func release_lock(path) { if path_is_dir(path) { try { os_rmdir(path) } except error {} } }
+func release_lock(path) {
+    try { delete_file(join_path(path, "owner")); os_rmdir(path) } except error {}
+}
 
 export func save_new(state, record) {
     id := record["id"]
@@ -75,8 +75,8 @@ export func save_new(state, record) {
     event := {"schema_version": "1.0.0", "event": "record.created", "record_id": id, "actor": record["actor"], "at": record["created_at"], "record_sha256": checksum}
     event_path := join_path(history_dir(state), substring(sha256(record["created_at"] + "\n" + id), 0, 32) + ".json")
     if file_exists(event_path) { release_lock(lock["path"]); return {"ok": false, "code": "history_conflict", "error": "audit history event already exists"} }
-    try { write_file_atomic(path, serialized, true) } except error { release_lock(lock["path"]); return {"ok": false, "code": "write_failed", "error": "atomic record write failed"} }
-    try { write_file_atomic(event_path, to_json_pretty(event) + "\n", true) } except error {
+    try { write_file_atomic(path, serialized, false) } except error { release_lock(lock["path"]); return {"ok": false, "code": "write_failed", "error": "atomic record write failed"} }
+    try { write_file_atomic(event_path, to_json_pretty(event) + "\n", false) } except error {
         try { delete_file(path) } except rollback_error {}
         release_lock(lock["path"])
         if path_is_file(path) { return {"ok": false, "code": "history_write_failed", "error": "audit history write failed and record rollback was incomplete"} }
@@ -90,12 +90,18 @@ export func load_record(state, id) {
     if !safe_id(id) { return {"ok": false, "code": "unsafe_id", "error": "unsafe record id"} }
     state_error := validate_state_path(state); if state_error != "" { return {"ok": false, "code": "unsafe_state", "error": state_error} }
     dir := records_dir(state); if file_exists(dir) && (path_is_symlink(dir) || !path_is_dir(dir)) { return {"ok": false, "code": "unsafe_state", "error": "records path must be a regular directory"} }
+    return read_record(state, id, true)
+}
+
+func read_record(state, id, checksum_required) {
+    if !safe_id(id) { return {"ok": false, "code": "unsafe_id", "error": "unsafe record id"} }
     path := record_path(state, id)
     if !path_is_file(path) || path_is_symlink(path) { return {"ok": false, "code": "not_found", "error": "record not found: " + id} }
     if file_size(path) > 1048576 { return {"ok": false, "code": "record_too_large", "error": "record exceeds 1 MiB"} }
     contents := read_file(path); parsed := parse_object(contents, "record " + id); if !parsed["ok"] { return parsed }
     if get(parsed["value"], "id", "") != id { return {"ok": false, "code": "id_mismatch", "error": "record id does not match filename"} }
-    return {"ok": true, "value": parsed["value"], "checksum": sha256(contents)}
+    if checksum_required { return {"ok": true, "value": parsed["value"], "checksum": sha256(contents)} }
+    return {"ok": true, "value": parsed["value"]}
 }
 
 export func list_records(state, kind, after, limit) {
@@ -106,7 +112,7 @@ export func list_records(state, kind, after, limit) {
         if ends_with(name, ".json") {
             id := substring(name, 0, len(name) - 5)
             if after == "" || id > after {
-                loaded := load_record(state, id)
+                loaded := read_record(state, id, false)
                 if loaded["ok"] {
                     record := loaded["value"]
                     if kind == "" || get(record, "record_type", "") == kind { if len(records) >= limit { truncated = true; break }; records = push(records, record) }

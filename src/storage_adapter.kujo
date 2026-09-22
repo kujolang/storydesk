@@ -1,12 +1,14 @@
-from src.storage import initialize, save_new, load_record, list_records
+from src.storage import initialize, save_new, load_record, list_records, validate_state_path
 from src.storage_sqlite import initialize_sqlite, save_new_sqlite, load_record_sqlite, list_records_sqlite
 from src.common import get, parse_object
 
 func adapter_error(adapter, state) {
+    state_error := validate_state_path(state); if state_error != "" { return state_error }
     path := join_path(state, "metadata.json")
     if !file_exists(path) { return "" }
     if !path_is_file(path) || path_is_symlink(path) || file_size(path) > 65536 { return "state metadata is unsafe" }
     parsed := parse_object(read_file(path), "state metadata"); if !parsed["ok"] { return parsed["error"] }
+    if get(parsed["value"], "tool", "") != "storydesk" || get(parsed["value"], "contract_version", "") != "1.0.0" { return "state metadata belongs to an incompatible tool or contract" }
     if get(parsed["value"], "storage_adapter", "json") != adapter { return "state storage adapter does not match requested adapter" }
     return ""
 }
@@ -28,4 +30,10 @@ export func storage_list_records(adapter, state, kind, after, limit) {
     error := adapter_error(adapter, state); if error != "" { return {"records": [], "warnings": [{"id": "", "code": "incompatible_state", "error": error}], "truncated": false} }
     if adapter == "sqlite" { return list_records_sqlite(state, kind, after, limit) }
     return list_records(state, kind, after, limit)
+}
+
+export func storage_check_state(adapter, state) {
+    error := adapter_error(adapter, state)
+    if error != "" { return {"ok": false, "code": "incompatible_state", "error": error} }
+    return {"ok": true}
 }
