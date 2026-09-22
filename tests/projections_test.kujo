@@ -1,0 +1,47 @@
+from src.core import dispatch
+from src.args import parse_args
+from tests.cleanup import cleanup_family
+
+mut passed := 0
+func check(ok,label) { if !ok { eprint("FAIL: " + label); exit(1) }; passed = passed + 1 }
+func opts(values) { return parse_args(values,["json"]) }
+root := "/tmp/storydesk-projections-" + uuid_v4()
+func mutate(state,adapter,command,id,at,payload) {
+    path := root + "-input.json"; write_file(path,to_json(payload),true)
+    result := dispatch(command,opts(["--state",state,"--storage-adapter",adapter,"--id",id,"--timestamp",at,"--actor","editor","--input",path]))
+    check(result["ok"], "fixture mutation " + id)
+}
+for adapter in ["json","sqlite"] {
+    state := root + "-" + adapter
+    mutate(state,adapter,"idea add","idea-topic","2026-09-22T12:00:00Z",{"title":"Topic"})
+    mutate(state,adapter,"status","event-review","2026-09-22T12:01:00Z",{"record_id":"idea-topic","from_status":"drafting","to_status":"editorial_review"})
+    queue := dispatch("review-queue current",opts(["--state",state,"--storage-adapter",adapter]))
+    check(queue["ok"] && len(queue["value"]["records"]) == 1 && queue["value"]["records"][0]["event_id"] == "event-review", "current queue projects latest report")
+    mutate(state,adapter,"status","event-tie-a","2026-09-22T12:02:00.1Z",{"record_id":"idea-topic","from_status":"drafting","to_status":"editorial_review"})
+    mutate(state,adapter,"status","event-tie-b","2026-09-22T12:02:00.100Z",{"record_id":"idea-topic","from_status":"editorial_review","to_status":"drafting"})
+    queue = dispatch("review-queue current",opts(["--state",state,"--storage-adapter",adapter]))
+    check(queue["ok"] && len(queue["value"]["records"]) == 0, "equivalent fractions use deterministic event ID tie-break")
+    queue = dispatch("review-queue current",opts(["--state",state,"--storage-adapter",adapter,"--review-status","drafting"]))
+    check(queue["ok"] && len(queue["value"]["records"]) == 1, "custom review statuses supported")
+    check(dispatch("review-queue",opts(["--state",state,"--storage-adapter",adapter]))["ok"], "legacy listing preserved")
+    audit := dispatch("history audit",opts(["--state",state,"--storage-adapter",adapter]))
+    check(audit["ok"] && audit["value"]["checked_records"] == 4 && audit["value"]["checked_events"] == 4, "full record/history reconciliation")
+    check(dispatch("history audit",opts(["--state",state,"--storage-adapter",adapter,"--id","idea-topic"]))["ok"], "point audit exposes verified event")
+    if adapter == "json" { write_file(state + "/history/00000000000000000000000000000000.json","{}",true) }
+    else {
+        db := db_connect("sqlite",state + "/storydesk.sqlite")
+        db_execute(db,"INSERT INTO history(event_id,record_id,document) VALUES(?,?,?)",["00000000000000000000000000000000","idea-orphan","{}"]); db_close(db)
+    }
+    check(!dispatch("history audit",opts(["--state",state,"--storage-adapter",adapter]))["ok"], "orphan audit entry detected")
+    if adapter == "json" {
+        event_id := substring(sha256("2026-09-22T12:00:00Z\nidea-topic"),0,32)
+        delete_file(state + "/history/" + event_id + ".json")
+    } else {
+        db := db_connect("sqlite",state + "/storydesk.sqlite")
+        db_execute(db,"DROP TRIGGER records_immutable_update",[])
+        db_execute(db,"UPDATE records SET document = ? WHERE id = ?",[to_json({"id":"idea-topic","created_at":"2026-09-22T12:00:00Z"}),"idea-topic"]); db_close(db)
+    }
+    check(!dispatch("history audit",opts(["--state",state,"--storage-adapter",adapter,"--id","idea-topic"]))["ok"], "missing event or changed record detected")
+}
+cleanup_family(root)
+print(to_string(passed) + " projection checks passed")

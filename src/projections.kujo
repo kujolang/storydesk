@@ -1,0 +1,115 @@
+from src.common import get, safe_id, valid_timestamp, timestamp_order_key, has, parse_object
+from src.storage_adapter import storage_list_records, storage_load_record, storage_check_state
+
+func failure(code, error) { return {"ok": false, "code": code, "error": error} }
+
+// Pure read model: latest reported status wins by normalized UTC time, then event ID.
+// This is editorial attribution, never publication or approval authority.
+export func current_review_queue(adapter, state, after, limit, statuses) {
+    mut latest := {}; mut cursor := ""; mut done := false; mut scanned := 0; mut retained_bytes := 0
+    while !done {
+        page := storage_list_records(adapter, state, "status_event", cursor, 1000)
+        if len(page["warnings"]) > 0 { return failure("projection_source_invalid", "review source contains unreadable records; inspect validate/doctor") }
+        for record in page["records"] {
+            scanned = scanned + 1
+            if scanned > 100000 { return failure("projection_limit", "review projection exceeds 100000 events") }
+            payload := get(record, "payload", {})
+            id := get(payload, "record_id", ""); at := get(record, "created_at", ""); event_id := get(record, "id", "")
+            status := get(payload, "to_status", "")
+            if get(record, "command", "") == "block" { status = "blocked" }
+            if !safe_id(id) || !safe_id(event_id) || !valid_timestamp(at) || type(status) != "string" || !regex_match(status, "^[a-z][a-z0-9_]{1,63}$") { return failure("projection_source_invalid", "status event has invalid target, timestamp, or status") }
+            order := timestamp_order_key(at) + "\n" + event_id
+            previous := get(latest, id, null)
+            if type(previous) == "null" || order > previous["order"] {
+                summary := {"record_id": id, "reported_status": status, "event_id": event_id, "at": at, "order": order}
+                if type(previous) != "null" { retained_bytes = retained_bytes - byte_length(to_json(previous)) }
+                retained_bytes = retained_bytes + byte_length(to_json(summary))
+                if retained_bytes > 8388608 { return failure("projection_limit", "review projection metadata exceeds 8 MiB") }
+                latest[id] = summary
+            }
+        }
+        next := get(page, "next_after", cursor)
+        if page["truncated"] && next == cursor { return failure("projection_no_progress", "review source cursor did not advance") }
+        cursor = next; done = !page["truncated"]
+    }
+    mut records := []; mut truncated := false; mut next_after := after
+    for id in sort(keys(latest)) {
+        summary := latest[id]
+        if id > after && has(statuses, summary["reported_status"]) {
+            if len(records) >= limit { truncated = true; break }
+            records = push(records, {"record_id": id, "reported_status": summary["reported_status"], "event_id": summary["event_id"], "at": summary["at"]})
+            next_after = id
+        }
+    }
+    return {"ok": true, "value": {"view": "current", "records": records, "truncated": truncated, "next_after": next_after, "events_scanned": scanned, "review_statuses": statuses}}
+}
+
+func read_event(adapter, state, record) {
+    id := record["id"]; event_id := substring(sha256(record["created_at"] + "\n" + id), 0, 32)
+    mut text := ""
+    if adapter == "sqlite" {
+        db := db_connect("sqlite", state + "/storydesk.sqlite"); mut rows := []
+        try { rows = db_query(db, "SELECT CASE WHEN length(CAST(document AS BLOB)) <= 65536 THEN document ELSE NULL END AS document FROM history WHERE event_id = ? AND record_id = ?", [event_id,id]) } except error { db_close(db); return failure("audit_read_failed", "could not read audit event") }
+        db_close(db)
+        if len(rows) != 1 || type(rows[0]["document"]) != "string" { return failure("audit_missing", "audit event is missing or exceeds 64 KiB") }
+        text = rows[0]["document"]
+    } else {
+        dir := state + "/history"
+        if !path_is_dir(dir) || path_is_symlink(dir) { return failure("unsafe_state", "history must be a regular directory") }
+        path := dir + "/" + event_id + ".json"
+        if !path_is_file(path) || path_is_symlink(path) { return failure("audit_missing", "audit event is missing or unsafe") }
+        if file_size(path) > 65536 { return failure("audit_too_large", "audit event exceeds 64 KiB") }
+        text = read_file(path)
+    }
+    parsed := parse_object(text, "audit event"); if !parsed["ok"] { return parsed }
+    event := parsed["value"]
+    loaded := storage_load_record(adapter, state, id); if !loaded["ok"] { return loaded }
+    if get(event,"schema_version","") != "1.0.0" || get(event,"event","") != "record.created" || get(event,"record_id","") != id || get(event,"record_sha256","") != loaded["checksum"] || get(event,"actor",null) != get(record,"actor",null) || get(event,"at",null) != get(record,"created_at",null) { return failure("audit_mismatch", "audit event does not match immutable record") }
+    return {"ok": true, "value": event}
+}
+
+// Reconcile both directions, without accumulating history or diagnostics in memory.
+export func audit_history(adapter, state) {
+    state_check := storage_check_state(adapter,state); if !state_check["ok"] { return state_check }
+    mut cursor := ""; mut done := false; mut checked := 0
+    while !done {
+        page := storage_list_records(adapter,state,"",cursor,1000)
+        if len(page["warnings"]) > 0 { return failure("audit_source_invalid", "record source contains unreadable documents") }
+        for record in page["records"] {
+            if !safe_id(get(record,"id","")) || !valid_timestamp(get(record,"created_at","")) { return failure("audit_source_invalid", "record identity or timestamp is invalid") }
+            event := read_event(adapter,state,record); if !event["ok"] { return event }
+            checked = checked + 1
+        }
+        next := get(page,"next_after",cursor)
+        if page["truncated"] && next == cursor { return failure("audit_no_progress", "audit record scan did not advance") }
+        cursor = next; done = !page["truncated"]
+    }
+    // Validated records each bind one deterministic, unique event. Equal event count
+    // therefore also proves there is no extra/orphan history entry.
+    mut event_count := 0
+    if adapter == "sqlite" {
+        db := db_connect("sqlite", state + "/storydesk.sqlite"); mut rows := []
+        try { rows = db_query(db,"SELECT COUNT(*) AS count FROM history",[]) } except error { db_close(db); return failure("audit_read_failed", "could not count audit events") }
+        db_close(db); event_count = rows[0]["count"]
+    } else {
+        dir := state + "/history"
+        if !path_is_dir(dir) || path_is_symlink(dir) { return failure("unsafe_state", "history must be a regular directory") }
+        cursor = ""; done = false
+        while !done {
+            page := list_dir_page(dir,cursor,1000,"")
+            for name in page["entries"] {
+                if !regex_match(name,"^[a-f0-9]{32}\\.json$") { return failure("audit_orphan", "history contains an unexpected entry") }
+                event_count = event_count + 1
+            }
+            cursor = page["next_after"]; done = !page["truncated"]
+        }
+    }
+    if event_count != checked { return failure("audit_orphan", "history contains events without matching records") }
+    return {"ok":true,"value":{"view":"audit","valid":true,"checked_records":checked,"checked_events":event_count,"consistency":"quiescent-local-state"}}
+}
+
+export func record_history(adapter,state,id) {
+    loaded := storage_load_record(adapter,state,id); if !loaded["ok"] { return loaded }
+    event := read_event(adapter,state,loaded["value"]); if !event["ok"] { return event }
+    return {"ok":true,"value":{"view":"audit","valid":true,"record_id":id,"events":[event["value"]]}}
+}

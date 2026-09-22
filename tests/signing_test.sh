@@ -14,4 +14,12 @@ if "$KUJO_RUNTIME" run "$ROOT/storydesk.kujo" -- export verify --input "$tmp/tam
   printf 'tampered signed export unexpectedly verified\n' >&2
   exit 1
 fi
+"$KUJO_RUNTIME" run "$ROOT/tests/signature_versions_test.kujo" -- "$tmp/private.pem" "$tmp/public.pem" "$tmp/versions.json"
 printf 'signed export tests passed.\n'
+
+if "$KUJO_RUNTIME" run "$ROOT/storydesk.kujo" -- export verify --input "$tmp/signed.json" --public-key "$tmp/public.pem" --require-authenticated-time --json >/dev/null 2>&1; then
+  printf 'legacy signature unexpectedly met authenticated-time requirement\n' >&2; exit 1
+fi
+"$KUJO_RUNTIME" run "$ROOT/storydesk.kujo" -- export --state "$tmp/state" --private-key "$tmp/private.pem" --public-key "$tmp/public.pem" --signature-version 2.0.0 --timestamp 2026-09-22T12:00:00Z --output "$tmp/v2.json" --json >/dev/null
+"$KUJO_RUNTIME" run "$ROOT/storydesk.kujo" -- export verify --input "$tmp/v2.json" --public-key "$tmp/public.pem" --require-authenticated-time --json >/dev/null
+printf 'authenticated-time CLI policy passed.\n'

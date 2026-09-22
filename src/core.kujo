@@ -1,13 +1,14 @@
 from src.args import parse_args
-from src.common import get, has, canonical_json, parse_object, safe_id, valid_timestamp, find_sensitive_key, bounded_int, envelope
+from src.common import get, has, canonical_json, parse_object, safe_id, safe_cursor, valid_timestamp, find_sensitive_key, bounded_int, envelope
 from src.profile import profile
 from src.domain import record_type, id_prefix, validate_command
 from src.storage import validate_state_path
 from src.storage_adapter import storage_initialize, storage_save_new, storage_load_record, storage_list_records, storage_check_state
 from src.policy import load_transition_graph
-from src.bundles import sign_export_bundle, verify_export_bundle
+from src.bundles import sign_export_version, verify_export_bundle
 from src.packets import generate_packet
 from src.integrations import validate_adapter_fixture
+from src.projections import current_review_queue, audit_history, record_history
 
 func flag(parsed, name, fallback) {
     if has_key(parsed["flags"], name) == 1 { return parsed["flags"][name] }
@@ -127,10 +128,10 @@ func export_result(value, parsed, p) {
     if file_exists(output) && path_is_symlink(output) { return {"ok": false, "code": "unsafe_output", "error": "output symlinks are not allowed"} }
     if file_exists(output) && flag(parsed, "force", false) != true { return {"ok": false, "code": "output_exists", "error": "output exists; use --force only for intentional safe replacement"} }
     rendered := to_json_pretty(envelope(true, value, null, null, p["version"], p["contract_version"])) + "\n"
-    if len(rendered) > 8388608 { return {"ok": false, "code": "output_too_large", "error": "output exceeds 8 MiB"} }
+    if byte_length(rendered) > 8388608 { return {"ok": false, "code": "output_too_large", "error": "output exceeds 8 MiB"} }
     if output == "" { return {"ok": true, "value": value} }
     try { write_file_atomic(output, rendered, flag(parsed, "force", false)) } except error { return {"ok": false, "code": "write_failed", "error": "atomic export write failed"} }
-    return {"ok": true, "value": {"output": output, "bytes": len(rendered), "sha256": sha256(rendered)}}
+    return {"ok": true, "value": {"output": output, "bytes": byte_length(rendered), "sha256": sha256(rendered)}}
 }
 
 export func dispatch(command, parsed) {
@@ -141,7 +142,7 @@ export func dispatch(command, parsed) {
     policy_path := setting(parsed, config, "transition-policy", get(config, "transition_policy", "")); policy := load_transition_graph(policy_path); if !policy["ok"] { return policy }
     metadata := {"schema_version": "1.0.0", "tool": p["slug"], "tool_version": p["version"], "contract_version": p["contract_version"], "storage_adapter": adapter, "created_at": now_utc()}
     if command == "init" { return storage_initialize(adapter, state, metadata) }
-    if command == "version" { return {"ok": true, "value": {"tool": p["slug"], "version": p["version"], "contract_version": p["contract_version"], "supported_record_versions": get(p, "record_versions", [p["version"]]), "minimum_kujo": "1.0.1"}} }
+    if command == "version" { return {"ok": true, "value": {"tool": p["slug"], "version": p["version"], "contract_version": p["contract_version"], "supported_record_versions": get(p, "record_versions", [p["version"]]), "minimum_kujo": "1.4.0", "required_runtime_revision": "cf785c0a7953717af16b657cda05b85d628144c5"}} }
     if command == "doctor" {
         state_error := validate_state_path(state); listing := {"records": [], "warnings": [], "truncated": false}
         if state_error == "" { listing = storage_list_records(adapter, state, "", "", 1000) }
@@ -149,10 +150,27 @@ export func dispatch(command, parsed) {
         mut code := null; mut error := null
         if state_error != "" { code = "unsafe_state"; error = state_error }
         if state_error == "" && len(listing["warnings"]) > 0 { code = "corrupt_state"; error = "one or more records are unreadable" }
-        return {"ok": healthy, "code": code, "error": error, "value": {"healthy": healthy, "tool": p["slug"], "version": p["version"], "minimum_kujo": "1.0.1", "state": state, "storage_adapter": adapter, "transition_policy": policy["source"], "record_count": len(listing["records"]), "corrupt_records": listing["warnings"], "limits": {"input_bytes": 1048576, "record_bytes": 1048576, "artifact_bytes": 67108864, "list_records": 1000, "packet_records": 100000}, "limitations": p["limitations"]}}
+        return {"ok": healthy, "code": code, "error": error, "value": {"healthy": healthy, "tool": p["slug"], "version": p["version"], "minimum_kujo": "1.4.0", "required_runtime_revision": "cf785c0a7953717af16b657cda05b85d628144c5", "state": state, "storage_adapter": adapter, "transition_policy": policy["source"], "record_count": len(listing["records"]), "truncated": listing["truncated"], "next_after": get(listing, "next_after", ""), "corrupt_records": listing["warnings"], "limits": {"input_bytes": 1048576, "record_bytes": 1048576, "artifact_bytes": 67108864, "list_records": 1000, "packet_records": 100000}, "limitations": p["limitations"]}}
+    }
+    if command == "history audit" {
+        id := flag(parsed,"id","")
+        if id != "" { return record_history(adapter,state,id) }
+        return audit_history(adapter,state)
+    }
+    if command == "review-queue current" {
+        limit_result := bounded_int(setting(parsed,config,"limit",100),100,1,1000); if !limit_result["ok"] { return limit_result }
+        after := flag(parsed,"after",""); if after != "" && !safe_id(after) { return {"ok":false,"code":"unsafe_cursor","error":"review cursor must be a record ID"} }
+        statuses := split(flag(parsed,"review-status","technical_review,editorial_review,ready_for_review"),",")
+        if len(statuses) > 128 { return {"ok":false,"code":"invalid_review_status","error":"at most 128 review statuses are allowed"} }
+        for status in statuses { if !regex_match(status,"^[a-z][a-z0-9_]{1,63}$") { return {"ok":false,"code":"invalid_review_status","error":"review statuses must be portable state names"} } }
+        return current_review_queue(adapter,state,after,limit_result["value"],statuses)
     }
     if command == "adapter validate" { return validate_adapter_fixture(flag(parsed, "kind", ""), flag(parsed, "input", "")) }
-    if command == "export verify" { return verify_export_bundle(flag(parsed, "input", ""), flag(parsed, "public-key", ""), flag(parsed, "require-signature", false)) }
+    if command == "export verify" {
+        verified := verify_export_bundle(flag(parsed,"input",""),flag(parsed,"public-key",""),flag(parsed,"require-signature",false))
+        if verified["ok"] && flag(parsed,"require-authenticated-time",false) && !get(verified["value"],"signed_at_authenticated",false) { return {"ok":false,"code":"authenticated_time_required","error":"verification requires an authenticated version 2 signing timestamp"} }
+        return verified
+    }
     if command == "packet generate" {
         page_result := bounded_int(flag(parsed, "page-size", 1000), 1000, 1, 1000); if !page_result["ok"] { return page_result }
         max_result := bounded_int(flag(parsed, "max-records", 100000), 100000, 1, 100000); if !max_result["ok"] { return max_result }
@@ -166,7 +184,7 @@ export func dispatch(command, parsed) {
     if has(p["list_commands"], command) {
         limit_result := bounded_int(setting(parsed, config, "limit", 100), 100, 1, 1000); if !limit_result["ok"] { return limit_result }
         kind := flag(parsed, "type", get(p["list_kinds"], command, ""))
-        after := flag(parsed, "after", ""); if after != "" && !safe_id(after) { return {"ok": false, "code": "unsafe_cursor", "error": "pagination cursor must be a safe record id"} }
+        after := flag(parsed, "after", ""); if after != "" && !safe_cursor(after) { return {"ok": false, "code": "unsafe_cursor", "error": "pagination cursor must be a printable filename component"} }
         listing := storage_list_records(adapter, state, kind, after, limit_result["value"])
         if len(listing["warnings"]) > 0 && has(["unsafe_state", "incompatible_state", "read_failed", "storage_unavailable"], listing["warnings"][0]["code"]) { return {"ok": false, "code": listing["warnings"][0]["code"], "error": listing["warnings"][0]["error"]} }
         return {"ok": true, "value": listing}
@@ -190,37 +208,38 @@ export func dispatch(command, parsed) {
                 checked_count = checked_count + 1; after = record["id"]
                 checked := validate_record(record, p, policy["value"]); if !checked["ok"] { invalid = push(invalid, {"id": record["id"], "code": checked["code"], "error": checked["error"]}) }
             }
-            done = !listing["truncated"] || len(warnings) > 0
+            after = get(listing, "next_after", after)
+            done = !listing["truncated"] || len(warnings) > 0 || len(invalid) > 0
         }
         valid := len(invalid) == 0 && len(warnings) == 0
         mut code := null; mut error := null
         if !valid { code = "validation_failed"; error = "one or more records failed validation" }
-        return {"ok": valid, "code": code, "error": error, "value": {"valid": valid, "checked": checked_count, "invalid": invalid, "storage_warnings": warnings, "truncated": len(warnings) > 0}}
+        return {"ok": valid, "code": code, "error": error, "value": {"valid": valid, "checked": checked_count, "invalid": invalid, "storage_warnings": warnings, "truncated": (len(warnings) > 0 || len(invalid) > 0), "next_after": after}}
     }
     if has(p["export_commands"], command) {
         limit_result := bounded_int(setting(parsed, config, "limit", 1000), 1000, 1, 1000); if !limit_result["ok"] { return limit_result }
-        after := flag(parsed, "after", ""); if after != "" && !safe_id(after) { return {"ok": false, "code": "unsafe_cursor", "error": "pagination cursor must be a safe record id"} }
+        after := flag(parsed, "after", ""); if after != "" && !safe_cursor(after) { return {"ok": false, "code": "unsafe_cursor", "error": "pagination cursor must be a printable filename component"} }
         listing := storage_list_records(adapter, state, flag(parsed, "type", ""), after, limit_result["value"])
         if len(listing["warnings"]) > 0 && has(["unsafe_state", "incompatible_state", "read_failed", "storage_unavailable"], listing["warnings"][0]["code"]) { return {"ok": false, "code": listing["warnings"][0]["code"], "error": listing["warnings"][0]["error"]} }
-        bundle := {"schema_version": "1.0.0", "tool": p["slug"], "storage_adapter": adapter, "records": listing["records"], "warnings": listing["warnings"], "truncated": listing["truncated"]}
+        bundle := {"schema_version": "1.0.0", "tool": p["slug"], "storage_adapter": adapter, "records": listing["records"], "warnings": listing["warnings"], "truncated": listing["truncated"], "next_after": get(listing, "next_after", after)}
         private_path := flag(parsed, "private-key", ""); public_path := flag(parsed, "public-key", "")
-        if private_path != "" || public_path != "" { if private_path == "" || public_path == "" { return {"ok": false, "code": "signing_keys_required", "error": "signed export requires both --private-key and --public-key"} }; signed := sign_export_bundle(bundle, private_path, public_path, flag(parsed, "timestamp", now_utc())); if !signed["ok"] { return signed }; bundle = signed["value"] }
+        if private_path != "" || public_path != "" { if private_path == "" || public_path == "" { return {"ok": false, "code": "signing_keys_required", "error": "signed export requires both --private-key and --public-key"} }; signed := sign_export_version(bundle, private_path, public_path, flag(parsed, "timestamp", now_utc()), flag(parsed, "signature-version", "1.0.0")); if !signed["ok"] { return signed }; bundle = signed["value"] }
         return export_result(bundle, parsed, p)
     }
     return create_record(command, parsed, config, p, policy)
 }
 
 func usage(p) {
-    return p["name"] + " " + p["version"] + "\n\n" + p["description"] + "\n\nCommands:\n  " + join(p["commands"], "\n  ") + "\n\nCommon flags:\n  --state PATH       Local state directory\n  --config FILE      JSON defaults including adapter and policy\n  --storage-adapter  json (default) or opt-in sqlite\n  --transition-policy FILE  Organization transition graph\n  --input FILE       JSON command payload (1 MiB maximum)\n  --actor ID         Required for mutations\n  --timestamp UTC    Deterministic RFC 3339 timestamp\n  --id ID            Explicit stable record ID\n  --path FILE        Bounded artifact attachment\n  --type TYPE        Record filter for list/export/packet\n  --after ID         Pagination cursor\n  --limit N          1..1000 records\n  --checkpoint FILE  Atomic resumable packet checkpoint\n  --resume           Resume matching packet checkpoint\n  --private-key FILE Sign export with an optional external RSA key\n  --public-key FILE  Verify/sign with a trusted RSA public key\n  --output FILE      Atomic JSON export\n  --force            Replace only an explicitly named safe output\n  --dry-run          Validate without writing\n  --json             Stable output envelope"
+    return p["name"] + " " + p["version"] + "\n\n" + p["description"] + "\n\nCommands:\n  " + join(p["commands"], "\n  ") + "\n\nCommon flags:\n  --state PATH       Local state directory\n  --config FILE      JSON defaults including adapter and policy\n  --storage-adapter  json (default) or opt-in sqlite\n  --transition-policy FILE  Organization transition graph\n  --input FILE       JSON command payload (1 MiB maximum)\n  --actor ID         Required for mutations\n  --timestamp UTC    Deterministic RFC 3339 timestamp\n  --id ID            Explicit stable record ID\n  --path FILE        Bounded artifact attachment\n  --type TYPE        Record filter for list/export/packet\n  --after ID         Pagination cursor\n  --limit N          1..1000 records\n  --checkpoint FILE  Atomic resumable packet checkpoint\n  --resume           Resume matching packet checkpoint\n  --private-key FILE Sign export with an optional external RSA key\n  --public-key FILE  Verify/sign with a trusted RSA public key\n  --signature-version  1.0.0 (legacy) or 2.0.0 (authenticated signing time)\n  --require-authenticated-time Reject unsigned/legacy timestamp claims\n  --review-status LIST Comma-separated states for review-queue current\n  --output FILE      Atomic JSON export\n  --force            Replace only an explicitly named safe output\n  --dry-run          Validate without writing\n  --json             Stable output envelope"
 }
 
 export func main(argv) {
     p := profile(); command := command_name(argv, p["commands"])
     if command == "help" { print(usage(p)); return 0 }
     if !has(p["commands"], command) { eprint(p["name"] + ": unknown command: " + command); return 2 }
-    parsed := parse_args(command_tokens(argv, command), ["json", "dry-run", "force", "resume", "require-signature"])
+    parsed := parse_args(command_tokens(argv, command), ["json", "dry-run", "force", "resume", "require-signature", "require-authenticated-time"])
     if len(parsed["errors"]) > 0 { eprint(p["name"] + ": " + parsed["errors"][0]); return 2 }
-    allowed := ["state", "config", "input", "id", "other-id", "actor", "timestamp", "path", "type", "kind", "after", "limit", "output", "json", "dry-run", "force", "storage-adapter", "transition-policy", "private-key", "public-key", "require-signature", "checkpoint", "resume", "page-size", "max-records"]
+    allowed := ["state", "config", "input", "id", "other-id", "actor", "timestamp", "path", "type", "kind", "after", "limit", "output", "json", "dry-run", "force", "storage-adapter", "transition-policy", "private-key", "public-key", "require-signature", "checkpoint", "resume", "page-size", "max-records", "signature-version", "review-status", "require-authenticated-time"]
     for name in keys(parsed["flags"]) { if !has(allowed, name) { eprint(p["name"] + ": unknown flag --" + name); return 2 } }
     if len(parsed["positionals"]) > 0 { eprint(p["name"] + ": unexpected positional argument: " + parsed["positionals"][0]); return 2 }
     mut result := null

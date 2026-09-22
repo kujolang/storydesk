@@ -13,6 +13,8 @@ cd "$ROOT"
 "$KUJO_RUNTIME" run tests/domain_test.kujo
 "$KUJO_RUNTIME" run tests/enhancements_test.kujo
 "$KUJO_RUNTIME" run tests/hardening_test.kujo
+"$KUJO_RUNTIME" run tests/paging_test.kujo
+"$KUJO_RUNTIME" run tests/projections_test.kujo
 bash tests/signing_test.sh
 bash tests/cli_test.sh
 while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_json.kujo -- "$document"; done < <(find fixtures schemas -type f -name '*.json' -print | sort)

@@ -1,5 +1,8 @@
 # StoryDesk repository hardening — 2026-09-22
 
+Historical baseline report. Follow-up implementation and closure evidence are
+recorded in [followups-2026-09-22.md](followups-2026-09-22.md).
+
 ## Repository and scope
 
 - Repository: `kujolang/storydesk`; branch: `main`.

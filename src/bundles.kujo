@@ -1,4 +1,4 @@
-from src.common import get, canonical_json, parse_object
+from src.common import get, canonical_json, parse_object, valid_timestamp
 
 func read_key(path, label) {
     if !path_is_file(path) || path_is_symlink(path) { return {"ok": false, "code": "unsafe_key", "error": label + " must be a regular non-symlink file"} }
@@ -7,16 +7,29 @@ func read_key(path, label) {
 }
 
 export func sign_export_bundle(bundle, private_path, public_path, signed_at) {
+    return sign_export_version(bundle, private_path, public_path, signed_at, "1.0.0")
+}
+
+func signature_statement(payload, integrity) {
+    return canonical_json({"purpose": "storydesk.export", "schema_version": "2.0.0", "algorithm": "RSA-SHA256", "key_id": integrity["key_id"], "signed_at": integrity["signed_at"], "payload_sha256": sha256(payload)})
+}
+
+export func sign_export_version(bundle, private_path, public_path, signed_at, version) {
+    if version != "1.0.0" && version != "2.0.0" { return {"ok": false, "code": "signature_version", "error": "signature version must be 1.0.0 or 2.0.0"} }
+    if !valid_timestamp(signed_at) { return {"ok": false, "code": "invalid_timestamp", "error": "signing time must be RFC 3339 UTC"} }
     private_key := read_key(private_path, "private signing key"); if !private_key["ok"] { return private_key }
     public_key := read_key(public_path, "public signing key"); if !public_key["ok"] { return public_key }
     payload := canonical_json(bundle); key_id := substring(sha256(public_key["value"]), 0, 32); mut signature := null
-    try { signature = rsa_sign(payload, private_key["value"]) } except error { signature = null }
+    integrity := {"schema_version": version, "algorithm": "RSA-SHA256", "key_id": key_id, "signed_at": signed_at, "payload_sha256": sha256(payload)}
+    statement := payload; if version == "2.0.0" { statement = signature_statement(payload, integrity) }
+    try { signature = rsa_sign(statement, private_key["value"]) } except error { signature = null }
     if type(signature) != "string" { return {"ok": false, "code": "signing_failed", "error": "RSA signing failed"} }
     mut verified := false
-    try { verified = rsa_verify(payload, signature, public_key["value"]) } except error { verified = false }
+    try { verified = rsa_verify(statement, signature, public_key["value"]) } except error { verified = false }
     if !verified { return {"ok": false, "code": "signing_failed", "error": "generated signature did not verify with the supplied public key"} }
     signed := bundle
-    signed["integrity"] := {"schema_version": "1.0.0", "algorithm": "RSA-SHA256", "key_id": key_id, "signed_at": signed_at, "payload_sha256": sha256(payload), "signature": signature}
+    integrity["signature"] = signature
+    signed["integrity"] := integrity
     return {"ok": true, "value": signed}
 }
 
@@ -37,9 +50,15 @@ export func verify_export_bundle(path, public_path, require_signature) {
     public_key := read_key(public_path, "public signing key"); if !public_key["ok"] { return public_key }
     unsigned := {}; for key in keys(bundle) { if key != "integrity" { unsigned[key] := bundle[key] } }
     payload := canonical_json(unsigned); key_id := substring(sha256(public_key["value"]), 0, 32)
-    if get(integrity, "schema_version", "") != "1.0.0" || get(integrity, "algorithm", "") != "RSA-SHA256" || get(integrity, "key_id", "") != key_id || get(integrity, "payload_sha256", "") != sha256(payload) { return {"ok": false, "code": "signature_invalid", "error": "export signature metadata does not bind the supplied bundle and key"} }
+    version := get(integrity, "schema_version", "")
+    if (version != "1.0.0" && version != "2.0.0") || get(integrity, "algorithm", "") != "RSA-SHA256" || get(integrity, "key_id", "") != key_id || get(integrity, "payload_sha256", "") != sha256(payload) { return {"ok": false, "code": "signature_invalid", "error": "export signature metadata does not bind the supplied bundle and key"} }
+    statement := payload
+    if version == "2.0.0" {
+        if !valid_timestamp(get(integrity, "signed_at", null)) { return {"ok": false, "code": "signature_invalid", "error": "authenticated signing time is missing or invalid"} }
+        statement = signature_statement(payload, integrity)
+    }
     mut verified := false
-    try { verified = rsa_verify(payload, get(integrity, "signature", ""), public_key["value"]) } except error { verified = false }
+    try { verified = rsa_verify(statement, get(integrity, "signature", ""), public_key["value"]) } except error { verified = false }
     if !verified { return {"ok": false, "code": "signature_invalid", "error": "export signature verification failed"} }
-    return {"ok": true, "value": {"valid": true, "signature": "verified", "signed_at_authenticated": false, "key_id": key_id, "payload_sha256": sha256(payload), "records": len(get(bundle, "records", []))}}
+    return {"ok": true, "value": {"valid": true, "signature": "verified", "signed_at_authenticated": (version == "2.0.0"), "signature_version": version, "signed_at": get(integrity, "signed_at", null), "key_id": key_id, "payload_sha256": sha256(payload), "records": len(get(bundle, "records", []))}}
 }

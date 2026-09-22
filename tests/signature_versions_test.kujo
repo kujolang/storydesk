@@ -1,0 +1,29 @@
+from src.bundles import sign_export_version, verify_export_bundle
+from src.common import canonical_json
+
+private_path := args()[0]; public_path := args()[1]; path := args()[2]
+bundle := {"schema_version": "1.0.0", "tool": "storydesk", "records": [], "warnings": [], "truncated": false}
+func change_integrity(value, key, replacement) { integrity := value["integrity"]; integrity[key] = replacement; value["integrity"] = integrity; return value }
+mut passed := 0
+func check(ok, label) { if !ok { eprint("FAIL: " + label); exit(1) }; passed = passed + 1 }
+for version in ["1.0.0", "2.0.0"] {
+    signed := sign_export_version(bundle, private_path, public_path, "2026-09-22T12:00:00Z", version)
+    check(signed["ok"], "version signs")
+    value := signed["value"]; write_file(path, to_json(value), true)
+    result := verify_export_bundle(path, public_path, true)
+    check(result["ok"] && result["value"]["signed_at_authenticated"] == (version == "2.0.0"), "version trust is explicit")
+    original := to_json(value)
+    value = change_integrity(value, "signed_at", "2025-01-01T00:00:00Z"); write_file(path, to_json(value), true)
+    check(verify_export_bundle(path, public_path, true)["ok"] == (version == "1.0.0"), "timestamp tamper distinguishes legacy and authenticated statement")
+    value = parse_json(original); value["records"] = [{"id": "idea-forged"}]; write_file(path, to_json(value), true)
+    check(!verify_export_bundle(path, public_path, true)["ok"], "content tamper rejected")
+    value = parse_json(original); value = change_integrity(value, "schema_version", "3.0.0"); write_file(path, to_json(value), true)
+    check(!verify_export_bundle(path, public_path, true)["ok"], "unknown signature version rejected")
+    if version == "2.0.0" {
+        value = parse_json(original); value = change_integrity(value, "schema_version", "1.0.0"); write_file(path, to_json(value), true)
+        check(!verify_export_bundle(path, public_path, true)["ok"], "downgrade cannot validate v2 signature as v1")
+        value = parse_json(original); value = change_integrity(value, "signed_at", null); write_file(path, to_json(value), true)
+        check(!verify_export_bundle(path, public_path, true)["ok"], "missing authenticated timestamp rejected")
+    }
+}
+print(to_string(passed) + " signature version checks passed")

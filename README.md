@@ -27,7 +27,9 @@ and [next-session worklist](docs/NEXT_SESSION.md).
 
 ## Quick install
 
-StoryDesk requires Kujo 1.0.1 or newer.
+StoryDesk requires Kujo revision `cf785c0a7953717af16b657cda05b85d628144c5`
+for bounded directory paging. Released 1.4.0 binaries predate that capability.
+See the [pinned runtime build instructions](docs/runtime.md).
 
 ```bash
 git clone https://github.com/kujolang/storydesk.git
@@ -85,8 +87,10 @@ storydesk idea list --config storydesk.json --after idea-previous --json
 | `handoff` | Record explicit ownership transfer and next action. |
 | `packet daily`, `packet range` | Create deterministic work-packet records. |
 | `packet generate` | Build and resume packet snapshots beyond one query page. |
-| `review-queue` | Inspect records for review; use `--type` to filter. Current-status queue projection is not implemented. |
-| `show`, `history` | Inspect immutable records and audit-oriented listings. |
+| `review-queue current` | Derive the latest reported status per subject and select work awaiting review. |
+| `history audit` | Reconcile record/event checksums, attribution, missing history, and orphan events. |
+| `review-queue`, `history` | Legacy generic record listings. |
+| `show` | Inspect an immutable record. |
 | `export`, `export verify` | Write portable bundles and optionally sign/verify them. |
 | `adapter validate` | Validate offline identity or scheduling adapter fixtures. |
 | `validate`, `doctor`, `version` | Verify records, environment health, and compatibility. |
@@ -176,7 +180,9 @@ Packet checkpoints bind the state, adapter, and record-type filter. Every page
 is written atomically, so interrupted runs resume without duplicating records.
 Unreadable source pages fail explicitly; fix the source before resuming.
 Checkpoints are trusted local snapshots. Legacy signed exports authenticate
-content but do not authenticate their informational signing time.
+content but do not authenticate their informational signing time. Select
+`--signature-version 2.0.0` to authenticate that time and verify with
+`--require-authenticated-time`.
 
 ## Project structure
 
@@ -203,3 +209,16 @@ the Git diff. Hosted providers are optional; none are required for the core.
 
 See the [repository hardening audit](docs/audits/repository-hardening.md) for
 current verification, measured limits, compatibility, and remaining work.
+
+### Review and reconciliation
+
+```bash
+storydesk review-queue current --state .storydesk --limit 25 --json
+storydesk review-queue current --review-status legal_review,editorial_review --json
+storydesk history audit --state .storydesk --json
+storydesk history audit --state .storydesk --id idea-example --json
+```
+
+Pause writers while reconciling history. Follow `next_after` when a list result
+is truncated, even if its record array is empty. Pages are bounded by both
+record count and serialized bytes; see [contracts](docs/contracts.md).
