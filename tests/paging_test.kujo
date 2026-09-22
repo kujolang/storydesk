@@ -1,0 +1,67 @@
+from tests.cleanup import cleanup_family
+from src.storage_adapter import storage_initialize, storage_list_records, storage_save_new
+from src.packets import generate_packet
+from src.common import get
+
+mut passed := 0
+func check(ok, label) { if !ok { eprint("FAIL: " + label); exit(1) }; passed = passed + 1 }
+root := "/tmp/storydesk-paging-" + uuid_v4()
+for adapter in ["json", "sqlite"] {
+    state := root + "-" + adapter
+    check(storage_initialize(adapter, state, {"tool":"storydesk","contract_version":"1.0.0","storage_adapter":adapter})["ok"], "initialize paging state")
+    oversized := {"id":"idea-unicode-oversize","record_type":"idea","actor":"fixture","created_at":"2026-09-22T00:00:00Z","payload":{"body":repeat("😀",300000)}}
+    check(!storage_save_new(adapter,state,oversized)["ok"], adapter + " serialized byte ceiling handles multibyte UTF-8")
+    mut db := null
+    if adapter == "sqlite" { db = db_connect("sqlite", state + "/storydesk.sqlite"); db_begin(db) }
+    mut i := 0
+    while i < 82 {
+        id := "idea-page-" + to_string(1000 + i)
+        document := "{"
+        if i < 12 { document = to_json({"id":id,"record_type":"idea","payload":{"body":repeat("😀",102400)}}) }
+        if adapter == "json" { write_file(state + "/records/" + id + ".json", document, true) }
+        else { db_execute(db,"INSERT INTO records (id,record_type,created_at,document,checksum) VALUES (?,?,?,?,?)",[id,"idea","2026-09-22T00:00:00Z",document,sha256(document)]) }
+        i = i + 1
+    }
+    if adapter == "sqlite" { db_commit(db); db_close(db) }
+    mut cursor := ""; mut count := 0; mut warnings := 0; mut done := false; mut pages := 0
+    while !done {
+        page := storage_list_records(adapter,state,"",cursor,1000)
+        check(page["document_bytes"] <= 4194304 && len(page["warnings"]) <= 64, adapter + " byte and diagnostic budgets")
+        check(!page["truncated"] || page["next_after"] > cursor, adapter + " cursor advances even through corruption")
+        count = count + len(page["records"]); warnings = warnings + len(page["warnings"]); pages = pages + 1
+        cursor = page["next_after"]; done = !page["truncated"]
+        if pages > 10 { eprint("paging did not terminate"); exit(1) }
+    }
+    check(count == 12 && warnings == 70 && pages >= 3, adapter + " pagination loses neither records nor warnings")
+}
+// A bounded scan can contain no matching records and still make progress.
+state := root + "-sparse"
+check(storage_initialize("json",state,{"tool":"storydesk","contract_version":"1.0.0","storage_adapter":"json"})["ok"], "initialize sparse state")
+mut i := 0
+while i < 1001 {
+    id := "idea-sparse-" + to_string(10000 + i); kind := "campaign"; if i == 1000 { kind = "idea" }
+    write_file(state + "/records/" + id + ".json",to_json({"id":id,"record_type":kind}),true); i = i + 1
+}
+page := storage_list_records("json",state,"idea","",1000)
+check(len(page["records"]) == 0 && page["truncated"] && page["next_after"] != "", "sparse filtered page exposes scan cursor")
+packet := generate_packet("json",state,"idea",root + "-checkpoint.json",false,1000,10)
+check(packet["ok"] && packet["value"]["record_count"] == 1, "packet follows empty filtered pages")
+check(generate_packet("json",state,"idea",root + "-checkpoint.json",true,1000,10)["ok"], "new scan checkpoint resumes")
+// Filename order differs from ID order when one ID has a hyphenated suffix.
+for adapter in ["json","sqlite"] {
+    state := root + "-prefix-" + adapter
+    storage_initialize(adapter,state,{"tool":"storydesk","contract_version":"1.0.0","storage_adapter":adapter})
+    mut db := null; if adapter == "sqlite" { db = db_connect("sqlite",state + "/storydesk.sqlite") }
+    for id in ["idea-a","idea-a-b","idea-a0"] {
+        document := to_json({"id":id,"record_type":"idea"})
+        if adapter == "json" { write_file(state + "/records/" + id + ".json",document,true) }
+        else { db_execute(db,"INSERT INTO records(id,record_type,created_at,document,checksum) VALUES(?,?,?,?,?)",[id,"idea","2026-09-22T00:00:00Z",document,sha256(document)]) }
+    }
+    if adapter == "sqlite" { db_close(db) }
+    checkpoint := root + "-prefix-checkpoint-" + adapter + ".json"
+    packet := generate_packet(adapter,state,"",checkpoint,false,1,10)
+    check(packet["ok"] && packet["value"]["record_count"] == 3, adapter + " prefix IDs traverse exactly once")
+    check(generate_packet(adapter,state,"",checkpoint,true,1,10)["ok"], adapter + " prefix IDs resume in adapter order")
+}
+cleanup_family(root)
+print(to_string(passed) + " paging checks passed")

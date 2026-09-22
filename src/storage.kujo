@@ -70,7 +70,7 @@ export func save_new(state, record) {
     if path_is_file(path) { release_lock(lock["path"]); return {"ok": false, "code": "duplicate_id", "error": "record already exists: " + id} }
     if file_exists(path) && path_is_symlink(path) { release_lock(lock["path"]); return {"ok": false, "code": "symlink_escape", "error": "record symlinks are not allowed"} }
     serialized := to_json_pretty(record) + "\n"
-    if len(serialized) > 1048576 { release_lock(lock["path"]); return {"ok": false, "code": "record_too_large", "error": "serialized record exceeds 1 MiB"} }
+    if byte_length(serialized) > 1048576 { release_lock(lock["path"]); return {"ok": false, "code": "record_too_large", "error": "serialized record exceeds 1 MiB"} }
     checksum := sha256(serialized)
     event := {"schema_version": "1.0.0", "event": "record.created", "record_id": id, "actor": record["actor"], "at": record["created_at"], "record_sha256": checksum}
     event_path := join_path(history_dir(state), substring(sha256(record["created_at"] + "\n" + id), 0, 32) + ".json")
@@ -101,24 +101,29 @@ func read_record(state, id, checksum_required) {
     contents := read_file(path); parsed := parse_object(contents, "record " + id); if !parsed["ok"] { return parsed }
     if get(parsed["value"], "id", "") != id { return {"ok": false, "code": "id_mismatch", "error": "record id does not match filename"} }
     if checksum_required { return {"ok": true, "value": parsed["value"], "checksum": sha256(contents)} }
-    return {"ok": true, "value": parsed["value"]}
+    return {"ok": true, "value": parsed["value"], "bytes": byte_length(contents)}
 }
 
 export func list_records(state, kind, after, limit) {
     mut records := []; mut warnings := []; mut truncated := false
     state_error := validate_state_path(state); if state_error != "" { return {"records": records, "warnings": [{"id": "", "code": "unsafe_state", "error": state_error}], "truncated": false} }
     dir := records_dir(state); if file_exists(dir) && (path_is_symlink(dir) || !path_is_dir(dir)) { return {"records": records, "warnings": [{"id": "", "code": "unsafe_state", "error": "records path must be a regular directory"}], "truncated": false} }; if !path_is_dir(dir) { return {"records": records, "warnings": warnings, "truncated": false} }
-    for name in sort(list_dir(dir)) {
-        if ends_with(name, ".json") {
-            id := substring(name, 0, len(name) - 5)
-            if after == "" || id > after {
-                loaded := read_record(state, id, false)
-                if loaded["ok"] {
-                    record := loaded["value"]
-                    if kind == "" || get(record, "record_type", "") == kind { if len(records) >= limit { truncated = true; break }; records = push(records, record) }
-                } else { warnings = push(warnings, {"id": id, "code": loaded["code"], "error": loaded["error"]}) }
+    name_after := ""; if after != "" { name_after = after + ".json" }
+    page := list_dir_page(dir, name_after, 1000, ".json")
+    mut cursor := after; mut bytes := 0; mut scanned := 0
+    truncated = page["truncated"]
+    for name in page["entries"] {
+        if len(warnings) >= 64 || len(records) >= limit { truncated = true; break }
+        id := substring(name, 0, len(name) - 5)
+        loaded := read_record(state, id, false)
+        if loaded["ok"] {
+            record := loaded["value"]
+            if kind == "" || get(record, "record_type", "") == kind {
+                if bytes + loaded["bytes"] > 4194304 { truncated = true; break }
+                bytes = bytes + loaded["bytes"]; records = push(records, record)
             }
-        }
+        } else { warnings = push(warnings, {"id": id, "code": loaded["code"], "error": loaded["error"]}) }
+        cursor = id; scanned = scanned + 1
     }
-    return {"records": records, "warnings": warnings, "truncated": truncated}
+    return {"records": records, "warnings": warnings, "truncated": truncated, "next_after": cursor, "document_bytes": bytes, "scanned": scanned, "directory_entries_examined": page["examined_entries"], "buffered_names": page["buffered_entries"]}
 }

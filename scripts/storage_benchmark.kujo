@@ -20,7 +20,7 @@ while index < count {
 db_commit(db); db_close(db)
 func scan(adapter, state) {
     mut after := ""; mut total := 0; mut done := false
-    while !done { page := storage_list_records(adapter, state, "idea", after, 250); for record in page["records"] { total = total + 1; after = record["id"] }; done = !page["truncated"] }
+    while !done { page := storage_list_records(adapter, state, "idea", after, 250); for record in page["records"] { total = total + 1 }; after = page["next_after"]; done = !page["truncated"] }
     return total
 }
 json_start := time(); json_total := 0; mut pass := 0

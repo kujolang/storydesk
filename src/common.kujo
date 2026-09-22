@@ -90,3 +90,7 @@ export func bounded_int(value, fallback, minimum, maximum) {
 export func envelope(ok, data, error, code, version, contract) {
     return {"ok": ok, "data": data, "error": error, "error_code": code, "tool_version": version, "contract_version": contract}
 }
+
+export func safe_cursor(value) {
+    return type(value) == "string" && len(value) <= 255 && contains(value, "/") == 0 && contains(value, "\\") == 0 && !regex_match(value, "[\\x00-\\x1F\\x7F]")
+}

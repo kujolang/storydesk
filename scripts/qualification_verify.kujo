@@ -1,0 +1,16 @@
+// Timing/RSS remains evidence, not a flaky admission gate. Semantics and bytes gate CI.
+root := args()[0]
+mut samples := 0
+for adapter in ["json","sqlite"] {
+    for size in ["small","large"] {
+        for sample in [1,2,3] {
+            prefix := root + "/" + adapter + "-" + size
+            before := parse_json(read_file(prefix + "-before-" + to_string(sample) + ".json"))
+            after := parse_json(read_file(prefix + "-after-" + to_string(sample) + ".json"))
+            if before["records"] != after["records"] || before["body_bytes"] != after["body_bytes"] || before["id_digest"] != after["id_digest"] { eprint("qualification behavior mismatch"); exit(1) }
+            if after["max_page_document_bytes"] > 4194304 { eprint("query byte budget regressed"); exit(1) }
+            samples = samples + 1
+        }
+    }
+}
+print(to_json({"verified_pairs":samples,"equivalent":true,"page_byte_budget":4194304}))

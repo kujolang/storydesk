@@ -1,4 +1,4 @@
-from src.common import get, parse_object, safe_id
+from src.common import get, parse_object, safe_id, safe_cursor
 from src.storage_adapter import storage_list_records
 
 func safe_checkpoint(path) {
@@ -9,7 +9,7 @@ func safe_checkpoint(path) {
 
 export func generate_packet(adapter, state, kind, checkpoint_path, resume, page_size, maximum) {
     error := safe_checkpoint(checkpoint_path); if error != "" { return {"ok": false, "code": "unsafe_checkpoint", "error": error} }
-    mut records := []; mut warnings := []; mut after := ""; mut pages := 0
+    mut records := []; mut warnings := []; mut after := ""; mut scan_after := ""; mut pages := 0
     if resume {
         if !path_is_file(checkpoint_path) { return {"ok": false, "code": "checkpoint_not_found", "error": "--resume requires an existing checkpoint"} }
         if file_size(checkpoint_path) > 67108864 { return {"ok": false, "code": "checkpoint_too_large", "error": "packet checkpoint exceeds 64 MiB"} }
@@ -21,27 +21,34 @@ export func generate_packet(adapter, state, kind, checkpoint_path, resume, page_
         mut previous := ""
         for record in records {
             id := get(record, "id", "")
-            if !safe_id(id) || id <= previous || (kind != "" && get(record, "record_type", "") != kind) { return {"ok": false, "code": "checkpoint_invalid", "error": "checkpoint records must be ordered, unique, and match the filter"} }
+            ordered_id := id; ordered_previous := previous
+            if adapter == "json" { ordered_id = id + ".json"; if previous != "" { ordered_previous = previous + ".json" } }
+            if !safe_id(id) || ordered_id <= ordered_previous || (kind != "" && get(record, "record_type", "") != kind) { return {"ok": false, "code": "checkpoint_invalid", "error": "checkpoint records must be ordered, unique, and match the filter"} }
             previous = id
         }
+        scan_after = get(checkpoint, "scan_after", after)
+        ordered_scan := scan_after; ordered_after := after
+        if adapter == "json" { if scan_after != "" { ordered_scan = scan_after + ".json" }; if after != "" { ordered_after = after + ".json" } }
+        if !safe_cursor(scan_after) || ordered_scan < ordered_after { return {"ok": false, "code": "checkpoint_invalid", "error": "checkpoint scan cursor is invalid"} }
         if previous != after { return {"ok": false, "code": "checkpoint_invalid", "error": "checkpoint cursor does not match its records"} }
         if get(checkpoint, "complete", false) == true { return {"ok": true, "value": {"schema_version": "1.0.0", "packet_kind": "generated", "records": records, "warnings": warnings, "record_count": len(records), "pages": pages, "checkpoint": checkpoint_path, "resumable": true}} }
     } else if file_exists(checkpoint_path) { return {"ok": false, "code": "checkpoint_exists", "error": "checkpoint exists; use --resume or choose a new path"} }
     // Budget serialized data before appending a full page or rendering the checkpoint.
-    mut record_bytes := len(to_json_pretty(records)); mut done := false
+    mut record_bytes := byte_length(to_json_pretty(records)); mut done := false
     while !done {
-        page := storage_list_records(adapter, state, kind, after, page_size)
+        page := storage_list_records(adapter, state, kind, scan_after, page_size)
         if len(page["warnings"]) > 0 { return {"ok": false, "code": "packet_storage_error", "error": "packet source contains unreadable records; inspect with doctor before resuming"} }
-        if page["truncated"] && len(page["records"]) == 0 { return {"ok": false, "code": "packet_no_progress", "error": "packet source did not advance its cursor"} }
+        if page["truncated"] && get(page, "next_after", scan_after) == scan_after { return {"ok": false, "code": "packet_no_progress", "error": "packet source did not advance its cursor"} }
         for record in page["records"] {
             if len(records) >= maximum { return {"ok": false, "code": "packet_limit", "error": "packet generation reached --max-records before completion"} }
-            record_bytes = record_bytes + len(to_json_pretty(record)) + 2
+            record_bytes = record_bytes + byte_length(to_json_pretty(record)) + 2
             if record_bytes > 67108864 { return {"ok": false, "code": "packet_too_large", "error": "packet checkpoint exceeds 64 MiB"} }
             records = push(records, record); after = record["id"]
         }
+        scan_after = get(page, "next_after", after)
         pages = pages + 1; done = !page["truncated"]
-        checkpoint := {"schema_version": "1.0.0", "state": state, "storage_adapter": adapter, "type": kind, "after": after, "pages": pages, "complete": done, "records": records, "warnings": warnings}
-        rendered := to_json_pretty(checkpoint) + "\n"; if len(rendered) > 67108864 { return {"ok": false, "code": "packet_too_large", "error": "packet checkpoint exceeds 64 MiB"} }
+        checkpoint := {"schema_version": "1.0.0", "state": state, "storage_adapter": adapter, "type": kind, "after": after, "scan_after": scan_after, "pages": pages, "complete": done, "records": records, "warnings": warnings}
+        rendered := to_json_pretty(checkpoint) + "\n"; if byte_length(rendered) > 67108864 { return {"ok": false, "code": "packet_too_large", "error": "packet checkpoint exceeds 64 MiB"} }
         try { write_file_atomic(checkpoint_path, rendered, resume || pages > 1) } except write_error { return {"ok": false, "code": "write_failed", "error": "atomic packet checkpoint write failed"} }
     }
     return {"ok": true, "value": {"schema_version": "1.0.0", "packet_kind": "generated", "records": records, "warnings": warnings, "record_count": len(records), "pages": pages, "checkpoint": checkpoint_path, "resumable": true}}

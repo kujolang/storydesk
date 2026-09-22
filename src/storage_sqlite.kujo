@@ -36,7 +36,7 @@ export func initialize_sqlite(state, metadata) {
 
 export func save_new_sqlite(state, record) {
     id := get(record, "id", ""); if !safe_id(id) { return {"ok": false, "code": "unsafe_id", "error": "unsafe record id"} }
-    serialized := to_json_pretty(record) + "\n"; if len(serialized) > 1048576 { return {"ok": false, "code": "record_too_large", "error": "serialized record exceeds 1 MiB"} }
+    serialized := to_json_pretty(record) + "\n"; if byte_length(serialized) > 1048576 { return {"ok": false, "code": "record_too_large", "error": "serialized record exceeds 1 MiB"} }
     checksum := sha256(serialized)
     event_id := substring(sha256(record["created_at"] + "\n" + id), 0, 32)
     event := {"schema_version": "1.0.0", "event": "record.created", "record_id": id, "actor": record["actor"], "at": record["created_at"], "record_sha256": checksum}
@@ -65,9 +65,11 @@ export func load_record_sqlite(state, id) {
     if !safe_id(id) { return {"ok": false, "code": "unsafe_id", "error": "unsafe record id"} }
     opened := connect(state, false); if !opened["ok"] { return opened }; db := opened["db"]
     mut rows := []
-    try { rows = db_query(db, "SELECT document, checksum FROM records WHERE id = ? LIMIT 1", [id]) } except error { db_close(db); return {"ok": false, "code": "read_failed", "error": "SQLite record read failed"} }
+    try { rows = db_query(db, "SELECT CASE WHEN length(CAST(document AS BLOB)) <= 1048576 THEN document ELSE NULL END AS document, checksum FROM records WHERE id = ? LIMIT 1", [id]) } except error { db_close(db); return {"ok": false, "code": "read_failed", "error": "SQLite record read failed"} }
     db_close(db)
     if len(rows) == 0 { return {"ok": false, "code": "not_found", "error": "record not found: " + id} }
+    if type(rows[0]["document"]) != "string" { return {"ok":false,"code":"record_too_large","error":"SQLite record exceeds 1 MiB"} }
+    if sha256(rows[0]["document"]) != rows[0]["checksum"] { return {"ok":false,"code":"checksum_drift","error":"SQLite document checksum does not match stored checksum"} }
     parsed := parse_object(rows[0]["document"], "record " + id); if !parsed["ok"] { return parsed }
     if get(parsed["value"], "id", "") != id { return {"ok": false, "code": "id_mismatch", "error": "record id does not match SQLite key"} }
     return {"ok": true, "value": parsed["value"], "checksum": rows[0]["checksum"]}
@@ -77,17 +79,27 @@ export func list_records_sqlite(state, kind, after, limit) {
     opened := connect(state, false)
     if !opened["ok"] { return {"records": [], "warnings": [{"id": "", "code": opened["code"], "error": opened["error"]}], "truncated": false} }
     db := opened["db"]; mut rows := []
-    try {
-        if kind == "" { rows = db_query(db, "SELECT id, document FROM records WHERE id > ? ORDER BY id LIMIT ?", [after, limit + 1]) }
-        else { rows = db_query(db, "SELECT id, document FROM records WHERE record_type = ? AND id > ? ORDER BY id LIMIT ?", [kind, after, limit + 1]) }
-    } except error { db_close(db); return {"records": [], "warnings": [{"id": "", "code": "read_failed", "error": "SQLite listing failed"}], "truncated": false} }
+    // Select a bounded key window; materialize documents only within the byte budget.
+    // SQLite's window sum executes before document strings cross into Kujo.
+    predicate := "id > ?"; params := [after, limit + 1]
+    if kind != "" { predicate = "record_type = ? AND id > ?"; params = [kind, after, limit + 1] }
+    query := "WITH candidates AS (SELECT id, length(CAST(document AS BLOB)) AS bytes FROM records WHERE " + predicate + " ORDER BY id LIMIT ?), budget AS (SELECT id, bytes, SUM(CASE WHEN bytes <= 1048576 THEN bytes ELSE 0 END) OVER (ORDER BY id) AS total FROM candidates) SELECT records.id, budget.bytes, budget.total, CASE WHEN budget.bytes <= 1048576 AND budget.total <= 4194304 THEN records.document ELSE NULL END AS document FROM budget JOIN records ON records.id = budget.id ORDER BY records.id"
+    try { rows = db_query(db, query, params) } except error { db_close(db); return {"records": [], "warnings": [{"id": "", "code": "read_failed", "error": "SQLite listing failed"}], "truncated": false} }
     db_close(db)
-    truncated := len(rows) > limit; mut records := []; mut warnings := []; mut index := 0
+    mut truncated := len(rows) > limit; mut records := []; mut warnings := []; mut index := 0; mut cursor := after; mut bytes := 0
     while index < len(rows) && index < limit {
-        parsed := parse_object(rows[index]["document"], "record " + rows[index]["id"])
-        if parsed["ok"] && get(parsed["value"], "id", "") == rows[index]["id"] { records = push(records, parsed["value"]) }
-        else { warnings = push(warnings, {"id": rows[index]["id"], "code": "malformed_json", "error": "SQLite record document is invalid"}) }
+        row := rows[index]
+        if row["bytes"] <= 1048576 && row["total"] > 4194304 { truncated = true; break }
+        if len(warnings) >= 64 { truncated = true; break }
+        cursor = row["id"]
+        if row["bytes"] > 1048576 { warnings = push(warnings, {"id": cursor, "code": "record_too_large", "error": "SQLite record exceeds 1 MiB"}) }
+        else {
+            bytes = bytes + row["bytes"]
+            parsed := parse_object(row["document"], "record " + cursor)
+            if parsed["ok"] && get(parsed["value"], "id", "") == cursor && safe_id(cursor) { records = push(records, parsed["value"]) }
+            else { warnings = push(warnings, {"id": cursor, "code": "malformed_json", "error": "SQLite record document is invalid"}) }
+        }
         index = index + 1
     }
-    return {"records": records, "warnings": warnings, "truncated": truncated}
+    return {"records": records, "warnings": warnings, "truncated": truncated, "next_after": cursor, "document_bytes": bytes, "scanned": index}
 }
