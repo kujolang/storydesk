@@ -1,0 +1,264 @@
+{
+  "repository": "kujolang/storydesk",
+  "branch": "main",
+  "starting_sha": "558582243782ab178f647d7ccb362ed5b92c61cc",
+  "ending_implementation_sha": "bc9025b09f6335a18daf20e0448fcf3dc8fc9aee",
+  "runtime_sha": "cf785c0a7953717af16b657cda05b85d628144c5",
+  "linux_artifact_id": 10716321064,
+  "qualification": {
+    "equivalent": true,
+    "page_byte_budget": 4194304,
+    "verified_pairs": 12
+  },
+  "measurements": [
+    {
+      "adapter": "json",
+      "workload": "small",
+      "records": 1000,
+      "payload_bytes_per_record": 256,
+      "before": {
+        "elapsed_ms": [
+          964,
+          926,
+          962
+        ],
+        "peak_rss_bytes": [
+          35430400,
+          35549184,
+          35614720
+        ],
+        "median_elapsed_ms": 962,
+        "median_peak_rss_bytes": 35549184,
+        "max_page_document_bytes": 365000,
+        "pages": 1
+      },
+      "after": {
+        "elapsed_ms": [
+          977,
+          945,
+          955
+        ],
+        "peak_rss_bytes": [
+          35868672,
+          35602432,
+          35803136
+        ],
+        "median_elapsed_ms": 955,
+        "median_peak_rss_bytes": 35803136,
+        "max_page_document_bytes": 365000,
+        "pages": 1
+      }
+    },
+    {
+      "adapter": "json",
+      "workload": "large",
+      "records": 64,
+      "payload_bytes_per_record": 524288,
+      "before": {
+        "elapsed_ms": [
+          104,
+          107,
+          105
+        ],
+        "peak_rss_bytes": [
+          58908672,
+          58822656,
+          58888192
+        ],
+        "median_elapsed_ms": 105,
+        "median_peak_rss_bytes": 58888192,
+        "max_page_document_bytes": 33561408,
+        "pages": 1
+      },
+      "after": {
+        "elapsed_ms": [
+          121,
+          123,
+          121
+        ],
+        "peak_rss_bytes": [
+          59031552,
+          58601472,
+          58732544
+        ],
+        "median_elapsed_ms": 121,
+        "median_peak_rss_bytes": 58732544,
+        "max_page_document_bytes": 3670779,
+        "pages": 10
+      }
+    },
+    {
+      "adapter": "sqlite",
+      "workload": "small",
+      "records": 1000,
+      "payload_bytes_per_record": 256,
+      "before": {
+        "elapsed_ms": [
+          723,
+          710,
+          716
+        ],
+        "peak_rss_bytes": [
+          37060608,
+          36630528,
+          36884480
+        ],
+        "median_elapsed_ms": 716,
+        "median_peak_rss_bytes": 36884480,
+        "max_page_document_bytes": 365000,
+        "pages": 1
+      },
+      "after": {
+        "elapsed_ms": [
+          792,
+          801,
+          788
+        ],
+        "peak_rss_bytes": [
+          37744640,
+          43839488,
+          37883904
+        ],
+        "median_elapsed_ms": 792,
+        "median_peak_rss_bytes": 37883904,
+        "max_page_document_bytes": 365000,
+        "pages": 1
+      }
+    },
+    {
+      "adapter": "sqlite",
+      "workload": "large",
+      "records": 64,
+      "payload_bytes_per_record": 524288,
+      "before": {
+        "elapsed_ms": [
+          114,
+          114,
+          112
+        ],
+        "peak_rss_bytes": [
+          92721152,
+          92749824,
+          92708864
+        ],
+        "median_elapsed_ms": 114,
+        "median_peak_rss_bytes": 92721152,
+        "max_page_document_bytes": 33561408,
+        "pages": 1
+      },
+      "after": {
+        "elapsed_ms": [
+          227,
+          233,
+          233
+        ],
+        "peak_rss_bytes": [
+          66838528,
+          66670592,
+          66695168
+        ],
+        "median_elapsed_ms": 233,
+        "median_peak_rss_bytes": 66695168,
+        "max_page_document_bytes": 3670779,
+        "pages": 10
+      }
+    }
+  ],
+  "method": "Separate processes, same seeded state and pinned runtime, independent warmups, three alternating before/after pairs. Linux time -v KiB RSS converted to bytes. Latency is evidence, not an admission gate.",
+  "qualification_sha": "8a2382f8031cbae3f34e7975913ee60c819ce5f5",
+  "application_tree_sha": "dbbf75f2424240812cd14b4f669ca970d4d55ad9",
+  "qualification_run_url": "https://github.com/kujolang/storydesk/actions/runs/35774362268",
+  "qualification_source_equivalence": "Application src tree and benchmark scripts are unchanged between qualification_sha and ending_implementation_sha; later changes release test fixture handles and cache runtime builds.",
+  "verification_run_url": "https://github.com/kujolang/storydesk/actions/runs/35777519206",
+  "verification_conclusion": "success",
+  "platforms": [
+    {
+      "platform": "Linux",
+      "job_id": 106914375527,
+      "artifact_id": 10717536985,
+      "conclusion": "success",
+      "checks": 138,
+      "contention": {
+        "platform": "Linux",
+        "results": [
+          {
+            "adapter": "json",
+            "workers": 24,
+            "collision_winners": 1,
+            "independent_writers": 24,
+            "immutable_winner": true
+          },
+          {
+            "adapter": "sqlite",
+            "workers": 24,
+            "collision_winners": 1,
+            "independent_writers": 24,
+            "immutable_winner": true
+          }
+        ]
+      }
+    },
+    {
+      "platform": "macOS",
+      "job_id": 106914375727,
+      "artifact_id": 10717222287,
+      "conclusion": "success",
+      "checks": 138,
+      "contention": {
+        "platform": "Darwin",
+        "results": [
+          {
+            "adapter": "json",
+            "workers": 24,
+            "collision_winners": 1,
+            "independent_writers": 24,
+            "immutable_winner": true
+          },
+          {
+            "adapter": "sqlite",
+            "workers": 24,
+            "collision_winners": 1,
+            "independent_writers": 24,
+            "immutable_winner": true
+          }
+        ]
+      }
+    },
+    {
+      "platform": "Windows",
+      "job_id": 106914375530,
+      "artifact_id": 10717409627,
+      "conclusion": "success",
+      "checks": 136,
+      "contention": {
+        "platform": "MINGW64_NT-10.0-26100",
+        "results": [
+          {
+            "adapter": "json",
+            "workers": 24,
+            "collision_winners": 1,
+            "independent_writers": 24,
+            "immutable_winner": true
+          },
+          {
+            "adapter": "sqlite",
+            "workers": 24,
+            "collision_winners": 1,
+            "independent_writers": 24,
+            "immutable_winner": true
+          }
+        ]
+      }
+    }
+  ],
+  "windows_check_difference": "Two preexisting symlink checks run only when native link creation succeeds; no check was removed or disabled by this follow-up.",
+  "cross_repository_followup": {
+    "repository": "kujolang/kujo",
+    "priority": "P2",
+    "finding": "db_close acknowledges without invalidating retained handles",
+    "capture_id": "cap_577d2146-0936-4914-81c4-dcf148932afc",
+    "signal_id": "sig_04137ebf-47a7-4785-b7f8-caf45906699c",
+    "required_for_storydesk": false,
+    "local_mitigation_commit": "5b0d5b7"
+  }
+}

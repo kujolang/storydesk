@@ -21,3 +21,16 @@ bounded directory enumeration and byte accounting; StoryDesk does not fall
 back to an unbounded directory listing. Earlier StoryDesk commits retain their
 original runtime requirement. Do not assume a version string alone proves the
 required capability; use the pinned build and repository verification gate.
+
+CI caches only the successfully built executable, keyed by operating system,
+architecture, exact Kujo source revision and Rust compiler fingerprint. There
+are no partial restore keys; a changed source or compiler rebuilds the runtime.
+All StoryDesk tests still run on cache hits. Increment the `kujo-runtime-v1`
+cache namespace when changing build flags or platform ABI assumptions; a miss
+rebuilds from the pinned source and lockfile.
+
+At this revision, `db_close` acknowledges the call but does not invalidate a
+retained database value. Storage adapter connections are scoped to each call;
+raw test fixtures explicitly release references before removing their state.
+The upstream handle-lifetime issue is documented in the follow-up audit;
+StoryDesk does not patch the sibling runtime or conceal cleanup failures.
