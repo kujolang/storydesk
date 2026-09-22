@@ -23,15 +23,22 @@ jobs:
           repository: kujolang/kujo
           ref: ${{ env.KUJO_COMMIT }}
           path: .runtime/kujo
-      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
+      - id: toolchain
+        uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
         with:
           toolchain: stable
+      - name: Restore pinned runtime
+        id: runtime-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: .runtime/kujo/target/release/kujo${{ runner.os == 'Windows' && '.exe' || '' }}
+          key: kujo-runtime-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.KUJO_COMMIT }}-${{ steps.toolchain.outputs.cachekey }}
       - name: Build pinned Kujo runtime
-        if: runner.os != 'Windows'
+        if: steps.runtime-cache.outputs.cache-hit != 'true' && runner.os != 'Windows'
         shell: bash
         run: cargo build --locked --release --manifest-path .runtime/kujo/Cargo.toml
       - name: Build pinned Kujo runtime with native Windows tools
-        if: runner.os == 'Windows'
+        if: steps.runtime-cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
         shell: pwsh
         run: |
           # Git Bash puts its incomplete MSYS Perl ahead of native Perl.
@@ -40,6 +47,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo build --locked --release --manifest-path .runtime/kujo/Cargo.toml
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Cache successfully built runtime
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: .runtime/kujo/target/release/kujo${{ runner.os == 'Windows' && '.exe' || '' }}
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
       - name: Validate full suite and contention
         shell: bash
         env:
