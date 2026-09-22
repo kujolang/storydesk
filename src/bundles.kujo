@@ -26,7 +26,9 @@ export func verify_export_bundle(path, public_path, require_signature) {
     parsed := parse_object(read_file(path), "export bundle"); if !parsed["ok"] { return parsed }; envelope_value := parsed["value"]
     bundle := envelope_value
     if has_key(envelope_value, "ok") == 1 && type(get(envelope_value, "data", null)) == "dict" { bundle = envelope_value["data"] }
+    if get(bundle, "schema_version", "") != "1.0.0" || get(bundle, "tool", "") != "storydesk" || type(get(bundle, "records", null)) != "array" { return {"ok": false, "code": "invalid_bundle", "error": "export bundle requires StoryDesk schema 1.0.0 and a records array"} }
     integrity := get(bundle, "integrity", null)
+    if has_key(bundle, "integrity") == 1 && type(integrity) != "dict" { return {"ok": false, "code": "signature_invalid", "error": "export integrity must be an object"} }
     if type(integrity) != "dict" {
         if require_signature { return {"ok": false, "code": "signature_required", "error": "export bundle is unsigned"} }
         return {"ok": true, "value": {"valid": true, "signature": "absent", "records": len(get(bundle, "records", []))}}
@@ -39,5 +41,5 @@ export func verify_export_bundle(path, public_path, require_signature) {
     mut verified := false
     try { verified = rsa_verify(payload, get(integrity, "signature", ""), public_key["value"]) } except error { verified = false }
     if !verified { return {"ok": false, "code": "signature_invalid", "error": "export signature verification failed"} }
-    return {"ok": true, "value": {"valid": true, "signature": "verified", "key_id": key_id, "payload_sha256": sha256(payload), "records": len(get(bundle, "records", []))}}
+    return {"ok": true, "value": {"valid": true, "signature": "verified", "signed_at_authenticated": false, "key_id": key_id, "payload_sha256": sha256(payload), "records": len(get(bundle, "records", []))}}
 }

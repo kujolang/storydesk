@@ -1,4 +1,4 @@
-from src.common import get, has, parse_object, safe_id, valid_timestamp, find_sensitive_key
+from src.common import get, has, parse_object, safe_id, valid_timestamp, find_sensitive_key, timestamp_order_key
 
 func require_adapter_text(value, key) {
     field := get(value, key, "")
@@ -24,7 +24,7 @@ export func validate_adapter_fixture(kind, path) {
             roles := get(record, "roles", null); if type(roles) != "array" || len(roles) > 64 { return {"ok": false, "code": "adapter_contract", "error": "identity roles must be a bounded array"} }
         } else {
             for key in ["event_id", "record_id", "starts_at", "ends_at", "timezone"] { error = require_adapter_text(record, key); if error != "" { return {"ok": false, "code": "adapter_contract", "error": "record " + to_string(index) + ": " + error} } }
-            if !valid_timestamp(record["starts_at"]) || !valid_timestamp(record["ends_at"]) || record["starts_at"] >= record["ends_at"] { return {"ok": false, "code": "adapter_contract", "error": "scheduling timestamps must be ordered RFC 3339 UTC values"} }
+            if !valid_timestamp(record["starts_at"]) || !valid_timestamp(record["ends_at"]) || timestamp_order_key(record["starts_at"]) >= timestamp_order_key(record["ends_at"]) { return {"ok": false, "code": "adapter_contract", "error": "scheduling timestamps must be ordered RFC 3339 UTC values"} }
         }
         index = index + 1
     }

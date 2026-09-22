@@ -1,3 +1,4 @@
+from tests.cleanup import cleanup_family
 from src.storage import initialize, save_new
 
 mut passed := 0
@@ -16,5 +17,6 @@ check(!path_is_file(root + "/records/" + record["id"] + ".json"), "history confl
 delete_file(event_path)
 check(save_new(root, record)["ok"], "clean retry persists record and audit event")
 
+cleanup_family(root)
 print(to_string(passed) + " passed; " + to_string(failed) + " failed")
 if failed > 0 { exit(1) }

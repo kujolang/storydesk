@@ -118,7 +118,7 @@ for CLI usage errors.
 
 State defaults to `.storydesk/`. Records are immutable JSON objects under
 `records/`; audit events are append-only under `history/`; short-lived
-per-record lock directories prevent concurrent duplicate writes. Inputs,
+per-record locks with exclusive ownership files prevent concurrent duplicate writes. Inputs,
 artifacts, list results, and exports have hard resource ceilings. Secret-shaped
 fields, traversal, symlink records, malformed JSON, incompatible schema majors,
 duplicate IDs, and unsafe overwrites fail closed.
@@ -174,6 +174,9 @@ storydesk adapter validate --kind scheduling --input fixtures/adapters/schedulin
 
 Packet checkpoints bind the state, adapter, and record-type filter. Every page
 is written atomically, so interrupted runs resume without duplicating records.
+Unreadable source pages fail explicitly; fix the source before resuming.
+Checkpoints are trusted local snapshots. Legacy signed exports authenticate
+content but do not authenticate their informational signing time.
 
 ## Project structure
 
@@ -197,3 +200,6 @@ bash scripts/validate.sh
 The gate pins the tested runtime in CI, runs every Kujo suite, validates JSON
 artifacts and CLI smoke paths, rejects foreign runtime dependencies, and checks
 the Git diff. Hosted providers are optional; none are required for the core.
+
+See the [repository hardening audit](docs/audits/repository-hardening.md) for
+current verification, measured limits, compatibility, and remaining work.

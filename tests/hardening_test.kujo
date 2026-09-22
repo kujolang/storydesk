@@ -1,0 +1,55 @@
+from tests.cleanup import cleanup_family
+from src.core import dispatch
+from src.args import parse_args
+from src.common import bounded_int, valid_date, valid_timestamp, timestamp_order_key
+from src.storage_adapter import storage_initialize, storage_save_new
+
+mut passed := 0; mut failed := 0
+func check(ok, label) { if ok { passed = passed + 1 } else { failed = failed + 1; eprint("FAIL: " + label) } }
+func opts(values) { return parse_args(values, ["json", "dry-run", "force", "resume", "require-signature"]) }
+check(valid_date("2024-02-29") && !valid_date("2026-02-29") && !valid_date("2100-02-29"), "calendar leap dates")
+check(!valid_timestamp("2026-04-31T00:00:00Z"), "impossible UTC date rejected")
+check(timestamp_order_key("2026-09-22T12:00:00Z") < timestamp_order_key("2026-09-22T12:00:00.1Z"), "fractional UTC ordering")
+check(timestamp_order_key("2026-09-22T12:00:00.1Z") == timestamp_order_key("2026-09-22T12:00:00.100Z"), "equivalent UTC fractions compare equal")
+root := "/tmp/storydesk-hardening-" + uuid_v4()
+for adapter in ["json", "sqlite"] {
+    state := root + "-dry-" + adapter
+    result := dispatch("idea add", opts(["--state", state, "--storage-adapter", adapter, "--input", "fixtures/core.json", "--actor", "editor", "--dry-run"]))
+    check(result["ok"] && !file_exists(state), adapter + " dry-run leaves no state")
+    invalid := dispatch("idea add", opts(["--state", state, "--storage-adapter", adapter, "--input", "fixtures/core.json"]))
+    check(!invalid["ok"] && !file_exists(state), adapter + " invalid mutation leaves no state")
+}
+check(!dispatch("idea add", opts(["--state", root + "/../escape", "--input", "fixtures/core.json", "--actor", "editor", "--dry-run"]))["ok"], "dry-run still rejects unsafe state")
+check(len(opts(["--state"])["errors"]) == 1, "missing flag value rejected")
+check(len(opts(["--state="])["errors"]) == 1, "empty flag value rejected")
+check(!bounded_int(repeat("9", 100), 100, 1, 1000)["ok"], "huge integer rejected without overflow")
+config := root + "-config.json"; write_file(config, to_json({"transition_policy": []}), true)
+check(!dispatch("doctor", opts(["--config", config]))["ok"], "config types checked before native path calls")
+empty := root + "-missing-sqlite"; create_dir(empty)
+check(!dispatch("idea list", opts(["--state", empty, "--storage-adapter", "sqlite"]))["ok"] && !file_exists(empty + "/storydesk.sqlite"), "SQLite reads do not create a database or hide read failure")
+
+state := root + "-state"
+check(dispatch("init", opts(["--state", state, "--storage-adapter", "sqlite"]))["ok"], "large validation fixture initialized")
+
+corrupt := root + "-corrupt"; dispatch("init", opts(["--state", corrupt, "--storage-adapter", "sqlite"]))
+db := db_connect("sqlite", corrupt + "/storydesk.sqlite")
+for id in ["idea-corrupt-a", "idea-corrupt-b"] { db_execute(db, "INSERT INTO records (id, record_type, created_at, document, checksum) VALUES (?, ?, ?, ?, ?)", [id, "idea", "2026-09-22T12:00:00Z", "{", "bad"]) }
+db_close(db)
+checkpoint := root + "-corrupt-checkpoint.json"
+packet := dispatch("packet generate", opts(["--state", corrupt, "--storage-adapter", "sqlite", "--checkpoint", checkpoint, "--page-size", "1"]))
+check(!packet["ok"] && packet["code"] == "packet_storage_error" && !file_exists(checkpoint), "corrupt packet page fails without looping or saving partial success")
+
+checkpoint = root + "-checkpoint.json"
+base := {"schema_version": "1.0.0", "state": state, "storage_adapter": "sqlite", "type": "", "after": "idea-one", "pages": 1, "complete": true, "records": [{"id": "idea-one"}], "warnings": []}
+write_file(checkpoint, to_json(base), true)
+base["pages"] = "bad"; write_file(checkpoint, to_json(base), true)
+check(!dispatch("packet generate", opts(["--state", state, "--storage-adapter", "sqlite", "--checkpoint", checkpoint, "--resume"]))["ok"], "checkpoint page type rejected")
+base["pages"] = 1; base["after"] = "idea-other"; write_file(checkpoint, to_json(base), true)
+check(!dispatch("packet generate", opts(["--state", state, "--storage-adapter", "sqlite", "--checkpoint", checkpoint, "--resume"]))["ok"], "checkpoint cursor mismatch rejected")
+base["after"] = "idea-two"; base["records"] = [{"id": "idea-one"}, {"id": "idea-two"}]; write_file(checkpoint, to_json(base), true)
+check(!dispatch("packet generate", opts(["--state", state, "--storage-adapter", "sqlite", "--checkpoint", checkpoint, "--resume", "--max-records", "1"]))["ok"], "completed checkpoint honors record ceiling")
+bundle := root + "-bundle.json"; write_file(bundle, "{}", true)
+check(!dispatch("export verify", opts(["--input", bundle]))["ok"], "arbitrary JSON is not a valid unsigned bundle")
+cleanup_family(root)
+print(to_string(passed) + " passed; " + to_string(failed) + " failed")
+if failed > 0 { exit(1) }

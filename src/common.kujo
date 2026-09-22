@@ -33,8 +33,23 @@ export func safe_id(value) {
     return type(value) == "string" && regex_match(value, "^[a-z][a-z0-9-]{2,127}$") && value != "." && value != ".."
 }
 
+export func valid_date(value) {
+    if type(value) != "string" || !regex_match(value, "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$") { return false }
+    year := to_int(substring(value, 0, 4)); month := to_int(substring(value, 5, 7)); day := to_int(substring(value, 8, 10))
+    days := [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    if month == 2 && (year % 400 == 0 || (year % 4 == 0 && year % 100 != 0)) { return day <= 29 }
+    return day <= days[month - 1]
+}
+
 export func valid_timestamp(value) {
-    return type(value) == "string" && regex_match(value, "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?Z$")
+    return type(value) == "string" && regex_match(value, "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?Z$") && valid_date(substring(value, 0, 10))
+}
+
+export func timestamp_order_key(value) {
+    // All accepted timestamps are UTC. Normalize optional fractions for lexical ordering.
+    fraction := ""
+    if len(value) > 20 { fraction = substring(value, 20, len(value) - 1) }
+    return substring(value, 0, 19) + "." + fraction + repeat("0", 9 - len(fraction))
 }
 
 func sensitive_name(name) {
@@ -65,6 +80,8 @@ export func bounded_int(value, fallback, minimum, maximum) {
     if type(value) == "null" || value == "" { return {"ok": true, "value": fallback} }
     text := to_string(value)
     if !regex_match(text, "^[0-9]+$") { return {"ok": false, "code": "invalid_number", "error": "expected an integer"} }
+    // Reject out-of-range digit strings before native integer conversion can overflow.
+    if len(text) > 18 { return {"ok": false, "code": "out_of_range", "error": "integer is too large"} }
     number := to_int(text)
     if number < minimum || number > maximum { return {"ok": false, "code": "out_of_range", "error": "value must be " + to_string(minimum) + ".." + to_string(maximum)} }
     return {"ok": true, "value": number}

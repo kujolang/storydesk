@@ -7,3 +7,7 @@ The optional SQLite adapter is bound in state metadata, uses parameterized queri
 Export signing is opt-in. Private and public keys must be explicit regular, non-symlink files no larger than 1 MiB. Keys are never copied into state or output. Signature trust depends on obtaining the public key through a separate trusted channel; `--require-signature` rejects unsigned handoffs.
 
 Transition policy and adapter fixtures are bounded, offline JSON inputs. Secret-shaped fields are rejected. Packet checkpoints bind their state, storage adapter, and type filter, use atomic replacement, and cannot be resumed against a different source.
+
+JSON lock ownership uses atomic exclusive file publication inside the per-record lock directory; directory creation alone is not exclusive in Kujo. Record and audit publication also refuse replacement atomically. A process crash can leave a stale lock or a record without its history event: inspect state before manually removing a stale lock. Use SQLite when record/history crash atomicity is required. Protect state, output and checkpoint parent directories from concurrent hostile mutation; component checks do not provide a filesystem sandbox. System aliases such as macOS `/tmp` remain supported.
+
+Version 1.0.0 signatures authenticate bundle contents, not the informational `integrity.signed_at`. No freshness or timestamp authority is granted by signature verification. Checkpoints are trusted local snapshots, not signed evidence; resume does not reauthenticate their accumulated records.

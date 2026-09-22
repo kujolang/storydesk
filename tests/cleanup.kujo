@@ -1,0 +1,14 @@
+// Remove only this test's UUID-scoped temporary family, including dangling links.
+func remove_tree(path) {
+    if path_is_symlink(path) { delete_file(path); return }
+    if path_is_dir(path) {
+        for name in list_dir(path) { remove_tree(join_path(path, name)) }
+        os_rmdir(path)
+    } else { delete_file(path) }
+}
+export func cleanup_family(root) {
+    prefix := substring(root, 5, len(root))
+    for name in list_dir("/tmp") {
+        if name == prefix || starts_with(name, prefix + "-") { remove_tree(join_path("/tmp", name)) }
+    }
+}

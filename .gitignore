@@ -159,3 +159,6 @@ Thumbs.db
 # /fence.toml
 # /.lens.toml
 # /packwrite.toml
+
+# Local hardening evidence (reviewed report lives in docs/audits).
+/.audit-evidence/

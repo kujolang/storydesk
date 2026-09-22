@@ -29,7 +29,7 @@ json_ms := time() - json_start
 sqlite_start := time(); sqlite_total := 0; pass = 0
 while pass < 3 { sqlite_total = scan("sqlite", root + "-sqlite"); pass = pass + 1 }
 sqlite_ms := time() - sqlite_start
-ratio := 0.0; if sqlite_ms > 0 { ratio = json_ms / sqlite_ms }
+ratio := 0.0; if sqlite_ms > 0 { ratio = (json_ms * 1.0) / sqlite_ms }
 eligible := json_total == count && sqlite_total == count && ratio >= 2.0
 print(to_json_pretty({"schema_version":"1.0.0","records":count,"full_scans":3,"json_ms":json_ms,"sqlite_ms":sqlite_ms,"sqlite_speedup":ratio,"eligibility_threshold":2.0,"sqlite_adapter_eligible":eligible,"state_root":root}))
 if !eligible { exit(1) }

@@ -1,3 +1,4 @@
+from tests.cleanup import cleanup_family
 from src.core import dispatch
 from src.args import parse_args
 from src.storage_adapter import storage_initialize, storage_save_new
@@ -44,5 +45,11 @@ if packet["ok"] { check(parse_json(read_file(packet_output))["data"]["record_cou
 resumed := dispatch("packet generate", opts(["--state", packet_state, "--storage-adapter", "sqlite", "--checkpoint", checkpoint, "--resume", "--page-size", "400", "--max-records", "2000"]))
 check(resumed["ok"] && resumed["value"]["record_count"] == 1005, "completed packet checkpoint resumes idempotently")
 
+invalid_record := {"schema_version":"1.0.0","tool_version":"0.3.0","contract_version":"1.0.0","id":"idea-zz-invalid","record_type":"idea","command":"idea add","actor":"fixture","created_at":"2026-08-14T10:02:00Z","provenance":[],"payload":{"schema_version":"1.0.0"}}
+check(storage_save_new("sqlite", packet_state, invalid_record)["ok"], "seed invalid record beyond the first validation page")
+validation := dispatch("validate", opts(["--state", packet_state, "--storage-adapter", "sqlite"]))
+check(!validation["ok"] && validation["value"]["checked"] == 1006 && len(validation["value"]["invalid"]) == 1, "validate detects invalid records beyond first page")
+
+cleanup_family(root)
 print(to_string(passed) + " passed; " + to_string(failed) + " failed")
 if failed > 0 { exit(1) }

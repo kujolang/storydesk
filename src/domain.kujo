@@ -1,4 +1,4 @@
-from src.common import get, valid_timestamp
+from src.common import get, valid_timestamp, valid_date
 from src.policy import validate_transition
 
 export func record_type(command) {
@@ -26,7 +26,6 @@ func require_text(payload, key) {
     if len(value) > 16384 { return "field exceeds 16 KiB: " + key }
     return ""
 }
-func valid_date(value){return type(value)=="string"&&regex_match(value,"^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$")}
 
 export func validate_command(command, payload, artifact, transition_graph) {
     if command == "idea add" { return require_text(payload, "title") }
