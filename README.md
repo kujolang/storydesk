@@ -85,7 +85,7 @@ storydesk idea list --config storydesk.json --after idea-previous --json
 | `handoff` | Record explicit ownership transfer and next action. |
 | `packet daily`, `packet range` | Create deterministic work-packet records. |
 | `packet generate` | Build and resume packet snapshots beyond one query page. |
-| `review-queue` | Query work awaiting human review. |
+| `review-queue` | Inspect records for review; use `--type` to filter. Current-status queue projection is not implemented. |
 | `show`, `history` | Inspect immutable records and audit-oriented listings. |
 | `export`, `export verify` | Write portable bundles and optionally sign/verify them. |
 | `adapter validate` | Validate offline identity or scheduling adapter fixtures. |

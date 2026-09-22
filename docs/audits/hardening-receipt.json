@@ -1,0 +1,35 @@
+{
+  "repository": "kujolang/storydesk",
+  "branch": "main",
+  "starting_sha": "e3707994b564c5b746493393c697424cc8503209",
+  "implementation_sha": "d354bbde7a22899d5e0c383cc1295bc2b1b1db33",
+  "runtime": "kujo 1.4.0",
+  "platform": "macOS",
+  "baseline": {
+    "verification": "passed",
+    "assertions": 52,
+    "wall_seconds": 54.95,
+    "storage_three_scans_1000_records": {
+      "json_ms": 43427,
+      "sqlite_ms": 32882,
+      "admission_passed": false
+    }
+  },
+  "final": {
+    "verification": "passed",
+    "assertions": 74,
+    "wall_seconds": 75.88,
+    "contention_workers_per_adapter": 24,
+    "collision_winners_per_adapter": 1,
+    "independent_writers_per_adapter": 24,
+    "audit_consistency": "passed"
+  },
+  "exploratory_after_storage": {
+    "json_ms": 66706,
+    "sqlite_ms": 18360,
+    "admission_passed": true,
+    "causal_speedup_claim": false
+  },
+  "memory_note_id": "6460500e-4535-4a87-b078-9fd2140c1f12",
+  "signalbox_capture_id": "cap_30f6f4e7-a1d2-4cd2-8bc8-a77d469fafd4"
+}

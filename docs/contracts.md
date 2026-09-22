@@ -1,6 +1,6 @@
 # Contracts
 
-Contract 1.0.0. StoryDesk owns: House Profile; Campaign; Idea; Editorial Brief; Assignment; Dependency; Status Event; Handoff Record; Daily Packet; Review Queue Entry. Records carry schema/tool versions, stable IDs, actor, timestamp, provenance, command, and payload. Consumers accept compatible 1.x, preserve safe unknown payload metadata, and reject incompatible majors. JSON uses `ok/data/error/error_code/tool_version/contract_version`. Offline upstream fixtures identify repository, tag, schema, and checksum.
+Contract 1.0.0. StoryDesk currently creates Campaign, Idea, Editorial Brief, Assignment, Status Event, Handoff Record, and Daily Packet records. House Profile, Dependency, and a derived Review Queue Entry have no dedicated creation commands. `history` and `review-queue` are record listings, not reconstructed current-state or audit-event projections. Records carry schema/tool versions, stable IDs, actor, timestamp, provenance, command, and payload. Consumers accept compatible 1.x, preserve safe unknown payload metadata, and reject incompatible majors. JSON uses `ok/data/error/error_code/tool_version/contract_version`. Offline upstream fixtures identify repository, tag, schema, and checksum.
 
 Storage adapters preserve the same immutable record document and checksum contract. State metadata binds a state directory to exactly one adapter. JSON is the portable baseline; SQLite is optional and uses a transaction to commit the immutable record and its unique append-only audit event together.
 
