@@ -1,5 +1,10 @@
 # StoryDesk hardening follow-ups — 2026-09-22
 
+> **2026-09-23 follow-up:** The upstream database-lifetime issue described below
+> is now fixed in Kujo and the StoryDesk reference-clearing mitigation is removed.
+> See the [native lifetime closure](native-database-lifetime-2026-09-23.md).
+> The original measurements and historical account below are preserved.
+
 Starting revision: `558582243782ab178f647d7ccb362ed5b92c61cc`, clean `main`.
 Ending implementation revision: `bc9025b09f6335a18daf20e0448fcf3dc8fc9aee`; the
 closure commit adds only this report, its receipt and runtime documentation.
