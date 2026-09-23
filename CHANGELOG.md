@@ -1,18 +1,20 @@
 # Changelog
 
-## 0.3.0 - 2026-08-14
+## 0.3.0 - 2026-09-23
 
-- Added a benchmark-qualified opt-in SQLite storage adapter with transactional immutable records and audit events.
-- Added configurable editorial transition graphs with policy provenance.
-- Added optional RSA-signed export bundles and trusted-key verification.
-- Added resumable, atomic multi-page packet generation beyond 1,000 records.
-- Added offline identity and scheduling adapter conformance fixtures.
-- Added macOS/Linux/Windows multi-process contention benchmark gates.
+- Added an opt-in SQLite storage adapter with transactional immutable records and audit events, configurable editorial transition graphs, and offline integration conformance fixtures.
+- Added RSA-signed export bundles and trusted-key verification, including opt-in authenticated signing timestamps while retaining legacy signature compatibility.
+- Added resumable multi-page packet generation, bounded query documents and diagnostics, and explicit continuation cursors.
+- Added current editorial review queues and audit-history projections while preserving legacy listings.
+- Hardened exclusive record publication, concurrent audit integrity, input validation, packet resume, filesystem boundaries, and CLI failure contracts.
+- Pinned Kujo source revision `58c087b5d7af2a05d5d9fd2ad26a5a533044c5f6` for bounded directory paging and correct native database closing; removed fixture reference-clearing workarounds.
+- Added Linux/macOS/Windows validation and multi-process contention gates, isolated performance/output qualification, and runtime-build caching keyed by platform, source revision, and compiler.
+- Standardized repository presentation and kept local engineering evidence out of published source.
 
-## Unreleased
-
-- Standardized README badge ordering and repository-local artifact ignores.
-- Kept Loop Engineering evidence available locally while removing it from published source.
+Runtime requirement: build the exact Kujo revision documented in `docs/runtime.md`.
+Published Kujo 1.5.0 binaries predate the required fixes. Existing record and
+legacy signature compatibility is retained; StoryDesk remains an offline,
+PROPOSE-only tool without publication authority.
 
 ## 0.2.0 - 2026-08-14
 
