@@ -1,7 +1,7 @@
 # Runtime requirement
 
 StoryDesk requires Kujo source revision
-`5356b247a7bb3322874c6a2e11af17783fe5c8fd` (version 1.5.0 development line).
+`58c087b5d7af2a05d5d9fd2ad26a5a533044c5f6` (version 1.5.0 development line).
 The released 1.5.0 binaries predate these native database-lifetime fixes.
 CI builds this exact revision with its lockfile on Linux, macOS and Windows.
 
@@ -9,7 +9,7 @@ Build a separate runtime checkout, then point the launcher at it:
 
 ```bash
 git clone https://github.com/kujolang/kujo.git /your/runtime/kujo
-git -C /your/runtime/kujo checkout 5356b247a7bb3322874c6a2e11af17783fe5c8fd
+git -C /your/runtime/kujo checkout 58c087b5d7af2a05d5d9fd2ad26a5a533044c5f6
 cargo build --locked --release --manifest-path /your/runtime/kujo/Cargo.toml
 export KUJO_BIN=/your/runtime/kujo/target/release/kujo
 bash scripts/validate.sh
@@ -33,4 +33,4 @@ rebuilds from the pinned source and lockfile.
 close remains successful. StoryDesk fixtures use that runtime contract directly;
 no reference-clearing workaround is needed. A regression test keeps aliases alive,
 checks use-after-close rejection, and deletes the SQLite file immediately. CI runs
-this test on Linux, macOS and Windows. See the [upstream contract](https://github.com/kujolang/kujo/blob/5356b247a7bb3322874c6a2e11af17783fe5c8fd/docs/DATABASE_LIFECYCLE.md).
+this test on Linux, macOS and Windows. See the [upstream contract](https://github.com/kujolang/kujo/blob/58c087b5d7af2a05d5d9fd2ad26a5a533044c5f6/docs/DATABASE_LIFECYCLE.md).

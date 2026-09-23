@@ -6,7 +6,7 @@ permissions:
   contents: read
 env:
   # Includes bounded directory paging; released 1.4.0 predates this primitive.
-  KUJO_COMMIT: 5356b247a7bb3322874c6a2e11af17783fe5c8fd
+  KUJO_COMMIT: 58c087b5d7af2a05d5d9fd2ad26a5a533044c5f6
 jobs:
   kujo-native:
     strategy:
